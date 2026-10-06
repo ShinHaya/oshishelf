@@ -54,16 +54,19 @@ export async function updateSettingsAction(_: unknown, form: FormData): Promise<
         displayName: z.string().trim().min(1).max(40),
         bio: z.string().max(400),
         defaultVisibility: visibility,
+        declareAdult: z.literal("on").optional(),
         showAdult: z.literal("on").optional(),
         twinEnabled: z.literal("on").optional(),
       })
       .parse(Object.fromEntries(form));
+    const isAdult = profile.isAdult || input.declareAdult === "on";
     await updateUser(uid, {
+      isAdult,
       displayName: input.displayName,
       bio: input.bio,
       defaultVisibility: input.defaultVisibility,
-      // R18 display requires the 18+ self-declaration made at sign-up.
-      showAdult: profile.isAdult && input.showAdult === "on",
+      // Viewing R18 items requires the 18+ self-declaration and an explicit opt-in (default off).
+      showAdult: isAdult && input.showAdult === "on",
       twinEnabled: input.twinEnabled === "on",
     });
     revalidatePath("/", "layout");

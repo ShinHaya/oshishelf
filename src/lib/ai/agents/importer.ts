@@ -189,9 +189,9 @@ export async function importCandidates(uid: string, candidates: ImportCandidate[
       price: r.price,
       category: r.info.categoryHint ?? enriched[i].category,
       tags: enriched[i].tags,
+      // R18 items can be public; viewers decide whether to see them (canSeeAdult).
       isAdult: adult,
-      // R18 items never default to fully public.
-      visibility: adult && defaultVisibility === "public" ? "followers" : defaultVisibility,
+      visibility: defaultVisibility,
       source,
     };
   });

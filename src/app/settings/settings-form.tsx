@@ -1,11 +1,12 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { updateSettingsAction } from "@/app/actions";
 import { VISIBILITY_LABELS, type UserProfile, type Visibility } from "@/lib/types";
 
 export function SettingsForm({ profile }: { profile: UserProfile }) {
   const [state, action, pending] = useActionState(updateSettingsAction, null);
+  const [declared, setDeclared] = useState(profile.isAdult);
   return (
     <form action={action} className="card space-y-4 p-5">
       <h2 className="font-display font-bold">プロフィール</h2>
@@ -34,17 +35,28 @@ export function SettingsForm({ profile }: { profile: UserProfile }) {
           <span className="block text-xs text-ink-2">ログインユーザーが、あなたの全体公開の棚をもとにしたAI分身と会話できます。</span>
         </span>
       </label>
-      {profile.isAdult ? (
+      <fieldset className="space-y-2 rounded-xl bg-surface-2 p-3">
+        <legend className="px-1 text-sm font-bold">成人向け（R18）作品の表示</legend>
+        <p className="text-xs text-ink-2">
+          初期状態では、他の人の棚にある成人向け作品は表示されません。18歳以上の方は、申告したうえで表示をONにできます。OFFのままなら、フォローした人の棚でも成人向けでない作品だけが表示されます。
+        </p>
         <label className="flex items-start gap-2 text-sm">
-          <input type="checkbox" name="showAdult" defaultChecked={profile.showAdult} className="mt-1" />
+          <input type="checkbox" name="declareAdult" checked={declared} disabled={profile.isAdult} onChange={(e) => setDeclared(e.target.checked)} className="mt-1" />
           <span>
-            R18作品を表示する
-            <span className="block text-xs text-ink-2">18歳以上と申告済みです。OFFの間は他の人のR18作品が非表示になります。</span>
+            私は18歳以上です
+            <span className="block text-xs text-ink-2">{profile.isAdult ? "申告済みです。" : "虚偽の申告は禁止です。"}</span>
           </span>
         </label>
-      ) : (
-        <p className="text-xs text-ink-2">R18作品は表示されません（登録時に18歳以上と申告していません）。</p>
-      )}
+        {/* A disabled checkbox is not submitted, so keep the existing declaration explicitly. */}
+        {profile.isAdult && <input type="hidden" name="declareAdult" value="on" />}
+        <label className={`flex items-start gap-2 text-sm ${declared ? "" : "opacity-50"}`}>
+          <input type="checkbox" name="showAdult" defaultChecked={profile.showAdult} disabled={!declared} className="mt-1" />
+          <span>
+            成人向け作品を表示する
+            <span className="block text-xs text-ink-2">ONにすると、フィードや他の人の棚に成人向け作品も表示されます。いつでもOFFに戻せます。</span>
+          </span>
+        </label>
+      </fieldset>
       {state && <p className={`text-sm ${state.ok ? "text-ok" : "text-danger"}`}>{state.ok ? "保存しました" : state.error}</p>}
       <button className="btn-primary" disabled={pending}>
         {pending ? "保存中…" : "保存"}

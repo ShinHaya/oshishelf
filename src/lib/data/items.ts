@@ -122,7 +122,7 @@ export async function listRecentPublic(limit = 40): Promise<Item[]> {
 export async function setGuard(results: { id: string; guard: GuardResult; isAdult?: boolean }[]) {
   const batch = db.batch();
   for (const r of results) {
-    batch.update(itemsCol().doc(r.id), r.isAdult ? { guard: r.guard, isAdult: true, visibility: r.guard.suggestedVisibility } : { guard: r.guard });
+    batch.update(itemsCol().doc(r.id), r.isAdult ? { guard: r.guard, isAdult: true } : { guard: r.guard });
   }
   await batch.commit();
 }
@@ -135,11 +135,8 @@ export async function publishItems(ownerUid: string, entries: { id: string; visi
   const now = Date.now();
   let n = 0;
   for (const e of entries) {
-    const item = owned.get(e.id);
-    if (!item) continue;
-    // R18 items are never fully public.
-    const v = item.isAdult && e.visibility === "public" ? "followers" : e.visibility;
-    batch.update(itemsCol().doc(e.id), { status: "published", visibility: v, publishedAt: now - n });
+    if (!owned.has(e.id)) continue;
+    batch.update(itemsCol().doc(e.id), { status: "published", visibility: e.visibility, publishedAt: now - n });
     n++;
   }
   if (n) {
@@ -166,7 +163,6 @@ export async function updateItem(ownerUid: string, id: string, patch: Partial<Pi
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists || snap.get("ownerUid") !== ownerUid) throw new Error("not found");
-    if ((patch.isAdult ?? snap.get("isAdult")) && (patch.visibility ?? snap.get("visibility")) === "public") patch = { ...patch, visibility: "followers" };
     tx.update(ref, patch);
   });
 }

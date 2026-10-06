@@ -3,6 +3,7 @@ import Link from "next/link";
 import { requireProfile } from "@/lib/session";
 import { listShelf } from "@/lib/data/items";
 import { ItemManager } from "@/components/item-manager";
+import { canSeeAdult } from "@/lib/access";
 
 export const metadata: Metadata = { title: "棚の編集" };
 
@@ -20,7 +21,7 @@ export default async function ShelfPage() {
           棚を見る
         </Link>
       </div>
-      <ItemManager items={items} mode="published" canAdult={profile.isAdult} />
+      <ItemManager items={items} mode="published" canAdult={canSeeAdult(profile)} />
     </div>
   );
 }

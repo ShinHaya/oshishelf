@@ -36,6 +36,8 @@ const SYSTEM = `あなたは購入履歴SNS「推し棚」のプライバシー�
 suggestedVisibility は warn なら "followers" か "private"、block なら "private"、ok なら "public"。
 理由は「健康に関する商品です」のように本人に優しく、短く書いてください。過剰に警告しないでください。`;
 
+const ADULT_NOTE = "成人向け（R18）作品です。公開しても、18歳以上と申告して表示をONにした人にしか見えません";
+
 /**
  * Privacy guard: classify drafts before publishing so the user can review risky ones.
  * R18-shop items are flagged deterministically and their titles are never sent to the model.
@@ -50,7 +52,7 @@ export async function runPrivacyGuard(uid: string, itemIds: string[]): Promise<n
     if (/^https?:\/\//.test(it.title)) {
       results.push({ id: it.id, guard: guard("warn", ["商品情報を取得できませんでした。URLが正しいか確認してください"], it.visibility) });
     } else if (it.isAdult) {
-      results.push({ id: it.id, guard: guard("warn", ["成人向け（R18）作品です。18歳以上と申告し表示をONにした人にだけ表示されます"], "followers") });
+      results.push({ id: it.id, guard: guard("warn", [ADULT_NOTE], it.visibility) });
     } else {
       toModel.push(it);
     }
@@ -70,7 +72,7 @@ export async function runPrivacyGuard(uid: string, itemIds: string[]): Promise<n
         const r = byIndex.get(i);
         if (!r) return results.push({ id: it.id, guard: guard("ok", [], it.visibility) });
         if (r.adult) {
-          results.push({ id: it.id, guard: guard("warn", ["成人向けの可能性があります", ...r.reasons], "followers"), isAdult: true });
+          results.push({ id: it.id, guard: guard("warn", [ADULT_NOTE, ...r.reasons], it.visibility), isAdult: true });
         } else {
           results.push({ id: it.id, guard: guard(r.level, r.reasons, r.suggestedVisibility) });
         }

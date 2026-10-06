@@ -24,7 +24,7 @@ export function OnboardingForm({ defaultName }: { defaultName: string }) {
         <input type="checkbox" name="isAdult" className="mt-1" />
         <span>
           私は18歳以上です
-          <span className="block text-xs text-ink-2">チェックすると、成人向け（R18）作品の登録・表示を設定で有効にできます。虚偽の申告は禁止です。</span>
+          <span className="block text-xs text-ink-2">チェックすると、設定で成人向け（R18）作品の表示をONにできます（初期状態はOFFです）。虚偽の申告は禁止です。</span>
         </span>
       </label>
       {state && !state.ok && <p className="text-sm text-danger">{state.error}</p>}

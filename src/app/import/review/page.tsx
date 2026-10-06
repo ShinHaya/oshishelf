@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { requireProfile } from "@/lib/session";
 import { listDrafts } from "@/lib/data/items";
 import { ItemManager } from "@/components/item-manager";
+import { canSeeAdult } from "@/lib/access";
 
 export const metadata: Metadata = { title: "下書きの確認" };
 
@@ -19,7 +20,7 @@ export default async function ReviewPage() {
           🛡️ プライバシーガードが「見られたくないかも」と判断した商品は、選択が外れた状態で表示されています。公開範囲を選んで公開するか、削除してください。
         </p>
       </div>
-      <ItemManager items={drafts} mode="draft" canAdult={profile.isAdult} />
+      <ItemManager items={drafts} mode="draft" canAdult={canSeeAdult(profile)} />
     </div>
   );
 }

@@ -34,7 +34,8 @@ export default async function ProfilePage(props: PageProps<"/u/[handle]">) {
     me && !isMe ? getCachedCompatibility(me.uid, owner.uid) : Promise.resolve(null),
   ]);
   const visible = shelf.filter((i) => canSeeItem(i, { viewerUid: me?.uid ?? null, viewerProfile: me, following }));
-  const showAdult = isMe ? !!me?.isAdult : canSeeAdult(me);
+  // The viewer decides: R18 items show only for viewers who declared 18+ and turned display on.
+  const showAdult = canSeeAdult(me);
   const adultHidden = visible.filter((i) => i.isAdult && !showAdult).length;
   const items = visible.filter((i) => showAdult || !i.isAdult);
 
@@ -126,7 +127,7 @@ export default async function ProfilePage(props: PageProps<"/u/[handle]">) {
         ))}
         {adultHidden > 0 && (
           <p className="text-center text-xs text-ink-2">
-            R18作品 {adultHidden} 件は非表示です{me?.isAdult ? "（設定で表示できます）" : ""}
+            成人向け作品 {adultHidden} 件は非表示です（18歳以上の方は設定で表示をONにできます）
           </p>
         )}
       </section>

@@ -112,7 +112,7 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
               aria-label="公開範囲"
             >
               {(Object.keys(VISIBILITY_LABELS) as Visibility[]).map((v) => (
-                <option key={v} value={v} disabled={item.isAdult && v === "public"}>
+                <option key={v} value={v}>
                   {VISIBILITY_LABELS[v]}
                 </option>
               ))}
