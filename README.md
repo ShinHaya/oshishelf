@@ -88,6 +88,12 @@ flowchart LR
 - [デモ動画の台本](docs/demo-video-script.md)
 - [提出チェックリストとプロジェクト説明文](docs/submission.md)
 
+## 運営・法務
+
+- [利用規約](https://oshi-dana.com/terms) / [プライバシーポリシー](https://oshi-dana.com/privacy)
+- 景品表示法（ステルスマーケティング規制）に対応し、フッターと購入リンクにアフィリエイトであることを表示しています
+- お問い合わせ: X [@nepinepimate3](https://x.com/nepinepimate3)
+
 ## 技術スタック
 
 Next.js 16 (App Router, Server Actions) / TypeScript / Tailwind CSS v4 / Agent Development Kit (`@google/adk`) / Google Gen AI SDK / Vertex AI (Gemini) / Firestore（ベクトル検索）/ Firebase Authentication / Cloud Run / Cloud Scheduler / Cloud Build

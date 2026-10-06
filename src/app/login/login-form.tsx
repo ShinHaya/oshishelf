@@ -267,6 +267,20 @@ export function LoginForm({ initialMode, notice: initialNotice }: { initialMode:
         </button>
       )}
 
+      {mode === "signup" && (
+        <p className="mt-4 text-center text-xs text-ink-2">
+          アカウントを作成すると、
+          <a href="/terms" target="_blank" className="underline">
+            利用規約
+          </a>
+          と
+          <a href="/privacy" target="_blank" className="underline">
+            プライバシーポリシー
+          </a>
+          に同意したものとみなします。
+        </p>
+      )}
+
       {mode !== "reset" && (
         <div className="mt-6 rounded-xl bg-accent-soft p-4 text-sm">
           <p className="font-bold">審査員・お試しの方へ</p>

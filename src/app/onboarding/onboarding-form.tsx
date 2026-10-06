@@ -27,6 +27,17 @@ export function OnboardingForm({ defaultName }: { defaultName: string }) {
           <span className="block text-xs text-ink-2">チェックすると、設定で成人向け（R18）作品の表示をONにできます（初期状態はOFFです）。虚偽の申告は禁止です。</span>
         </span>
       </label>
+      <p className="text-xs text-ink-2">
+        はじめることで、
+        <a href="/terms" target="_blank" className="underline">
+          利用規約
+        </a>
+        と
+        <a href="/privacy" target="_blank" className="underline">
+          プライバシーポリシー
+        </a>
+        に同意したものとみなします。
+      </p>
       {state && !state.ok && <p className="text-sm text-danger">{state.error}</p>}
       <button className="btn-primary w-full" disabled={pending}>
         {pending ? "作成中…" : "はじめる"}

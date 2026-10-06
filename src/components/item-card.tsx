@@ -82,6 +82,9 @@ export function ItemCard({
         <div className="flex gap-1.5">
           <a href={`/go/${item.id}`} target="_blank" rel="noopener noreferrer sponsored" className="btn-primary flex-1 !px-2 !py-1.5 !text-xs">
             {item.urlIsSearch ? "ショップで探す" : "ショップで見る"}
+            <span className="rounded bg-white/25 px-1 text-[9px] leading-tight" title="アフィリエイトリンクを含みます">
+              PR
+            </span>
           </a>
           {canWish && <WishButton itemId={item.id} initial={!!wished} />}
         </div>
