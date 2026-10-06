@@ -9,11 +9,17 @@ interface NavItem {
   icon: string;
 }
 
-function items(handle: string): NavItem[] {
+const PUBLIC_ITEMS: NavItem[] = [
+  { href: "/", label: "フィード", icon: "🏠" },
+  { href: "/discover", label: "見つける", icon: "🔭" },
+];
+
+/** Guests (handle null) only get the public pages; the rest need an account. */
+function items(handle: string | null): NavItem[] {
+  if (!handle) return PUBLIC_ITEMS;
   return [
     { href: `/u/${handle}`, label: "自分の棚", icon: "📚" },
-    { href: "/", label: "フィード", icon: "🏠" },
-    { href: "/discover", label: "見つける", icon: "🔭" },
+    ...PUBLIC_ITEMS,
     { href: "/import", label: "取り込む", icon: "＋" },
     { href: "/wishlist", label: "ほしい", icon: "♡" },
   ];
@@ -24,7 +30,7 @@ function isActive(pathname: string, href: string) {
 }
 
 /** Desktop tabs in the header. */
-export function NavTabs({ handle }: { handle: string }) {
+export function NavTabs({ handle }: { handle: string | null }) {
   const pathname = usePathname();
   return (
     <nav className="ml-4 hidden gap-1 sm:flex">
@@ -46,7 +52,7 @@ export function NavTabs({ handle }: { handle: string }) {
 }
 
 /** Fixed bottom bar on phones. */
-export function NavBottomBar({ handle }: { handle: string }) {
+export function NavBottomBar({ handle }: { handle: string | null }) {
   const pathname = usePathname();
   return (
     <nav className="fixed inset-x-0 bottom-0 z-20 flex border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] sm:hidden">
