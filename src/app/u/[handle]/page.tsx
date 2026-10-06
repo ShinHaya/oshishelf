@@ -49,7 +49,7 @@ export default async function ProfilePage(props: PageProps<"/u/[handle]">) {
           <div className="min-w-0 flex-1">
             <h1 className="font-display text-2xl font-bold">{owner.displayName}</h1>
             <p className="text-sm text-ink-2">@{owner.handle}</p>
-            <div className="mt-2 flex gap-4 text-sm">
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 whitespace-nowrap text-sm">
               <span>
                 <b>{owner.itemCount}</b> 作品
               </span>

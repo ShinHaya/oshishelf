@@ -4,6 +4,27 @@ import { CATEGORY_LABELS } from "@/lib/types";
 import { Avatar } from "./avatar";
 import { WishButton } from "./wish-button";
 
+function hueOf(s: string) {
+  let h = 0;
+  for (const ch of s) h = (h * 31 + ch.codePointAt(0)!) % 360;
+  return h;
+}
+
+/** Book-cover style placeholder for items without an image, tinted per title. */
+function GeneratedCover({ title }: { title: string }) {
+  const h = hueOf(title);
+  return (
+    <span
+      className="relative flex h-full flex-col justify-between overflow-hidden p-4 text-white"
+      style={{ background: `linear-gradient(160deg, hsl(${h} 45% 42%), hsl(${(h + 30) % 360} 50% 28%))` }}
+    >
+      <span className="absolute inset-y-0 left-2 w-px bg-white/25" aria-hidden />
+      <span className="mt-6 line-clamp-5 font-display text-lg font-bold leading-snug drop-shadow-sm">{title}</span>
+      <span className="text-[10px] tracking-widest text-white/70">OSHISHELF</span>
+    </span>
+  );
+}
+
 export function ItemCard({
   item,
   owner,
@@ -32,7 +53,7 @@ export function ItemCard({
         {item.imageUrl ? (
           <img src={item.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover transition group-hover:scale-[1.02]" />
         ) : (
-          <span className="grid h-full place-items-center p-3 text-center font-display text-sm text-ink-2">{item.title}</span>
+          <GeneratedCover title={item.title} />
         )}
         <span className="absolute left-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">{item.shopLabel}</span>
         {item.isAdult && <span className="absolute right-2 top-2 rounded bg-danger px-1.5 py-0.5 text-[10px] font-bold text-white">R18</span>}
