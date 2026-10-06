@@ -20,7 +20,7 @@ export const SAFETY_SETTINGS = [
 
 function isRetryable(e: unknown) {
   const msg = String((e as { message?: string })?.message ?? e);
-  return /429|Resource exhausted|RESOURCE_EXHAUSTED|503|UNAVAILABLE|overloaded|deadline/i.test(msg);
+  return /429|Resource exhausted|RESOURCE_EXHAUSTED|503|UNAVAILABLE|overloaded|deadline|Malformed function call|MALFORMED_FUNCTION_CALL/i.test(msg);
 }
 
 /** Retry transient Vertex AI errors (429 / 503) with exponential backoff and jitter. */

@@ -33,6 +33,7 @@ type Extracted = { items: { title: string; shop: string; price?: number | null; 
 
 const EXTRACT_SYSTEM = `あなたはECサイトの購入履歴を読み取るアシスタントです。
 購入した「商品」だけを列挙し、広告・おすすめ・ナビゲーション・注文番号・配送先・氏名・住所・カード情報などは絶対に含めないでください。
+商品名の中に贈り先・宛名・氏名・メッセージが含まれている場合は、その部分を取り除いた商品名にしてください。
 同じ商品は1回だけ出力してください。`;
 
 /** Screenshot of a purchase-history page → product candidates (Gemini multimodal). */

@@ -87,9 +87,28 @@ export async function readProductWithGemini(url: string): Promise<ProductMeta> {
   return { title: title || null, imageUrl: null, price: parsePrice(price), description: null };
 }
 
+/** Steam exposes prices via its public store API rather than page metadata. */
+async function fetchSteamMeta(appId: string): Promise<ProductMeta | null> {
+  const res = await fetch(`https://store.steampowered.com/api/appdetails?appids=${appId}&cc=jp&l=japanese`, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) return null;
+  const data = (await res.json())?.[appId];
+  if (!data?.success) return null;
+  const d = data.data;
+  return {
+    title: d.name ?? null,
+    imageUrl: d.header_image ?? null,
+    price: d.is_free ? 0 : d.price_overview?.final ? Math.round(d.price_overview.final / 100) : null,
+    description: d.short_description ?? null,
+  };
+}
+
 /** Scrape title / image / price from a public product page. Returns nulls when the shop blocks bots. */
 export async function fetchProductMeta(url: string): Promise<ProductMeta> {
   const info = detectShop(url);
+  if (info.shop === "steam" && info.productKey) {
+    const steam = await fetchSteamMeta(info.productKey.split(":")[1]).catch(() => null);
+    if (steam) return steam;
+  }
   // FANZA and DLsite show an age-check interstitial unless these cookies are set.
   const cookie = info.shop === "fanza" ? "age_check_done=1" : info.shop === "dlsite" ? "adultchecked=1" : undefined;
   const res = await safeFetchText(url, { cookie });
