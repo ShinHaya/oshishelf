@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   createUserWithEmailAndPassword,
@@ -62,12 +62,22 @@ export function LoginForm({ initialMode, notice: initialNotice }: { initialMode:
   const [notice, setNotice] = useState<string | null>(initialNotice ?? null);
   const [unverified, setUnverified] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [resetSentTo, setResetSentTo] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
+
+  // Each new reset/verification email invalidates the previous link, so throttle re-sends.
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
 
   function switchMode(m: Mode) {
     setMode(m);
     setError(null);
     setNotice(null);
     setUnverified(false);
+    setResetSentTo(null);
   }
 
   async function finish(user: User) {
@@ -117,6 +127,7 @@ export function LoginForm({ initialMode, notice: initialNotice }: { initialMode:
       await signOut(clientAuth);
       setMode("login");
       setPassword("");
+      setCooldown(60);
       setNotice(`${email} に確認メールを送りました。メール内のリンクを開いてから、ログインしてください。`);
     } catch (e) {
       const code = (e as { code?: string }).code ?? "";
@@ -133,7 +144,8 @@ export function LoginForm({ initialMode, notice: initialNotice }: { initialMode:
       await sendVerification(cred.user);
       await signOut(clientAuth);
       setUnverified(false);
-      setNotice(`${email} に確認メールを再送しました。`);
+      setCooldown(60);
+      setNotice(`${email} に確認メールを再送しました。以前のメールのリンクは無効になるので、最新のメールのリンクを開いてください。`);
     } catch (e) {
       const code = (e as { code?: string }).code ?? "";
       setError(ERRORS[code] ?? "確認メールを送れませんでした");
@@ -147,8 +159,8 @@ export function LoginForm({ initialMode, notice: initialNotice }: { initialMode:
     try {
       clientAuth.languageCode = "ja";
       await sendPasswordResetEmail(clientAuth, email, continueUrl("reset"));
-      // Same message whether or not the address is registered (no account enumeration).
-      setNotice(`${email} が登録済みであれば、パスワード再設定のメールを送りました。メール内のリンクから新しいパスワードを設定してください。`);
+      setResetSentTo(email);
+      setCooldown(60);
     } catch (e) {
       const code = (e as { code?: string }).code ?? "";
       setError(ERRORS[code] ?? "メールを送れませんでした");
@@ -166,6 +178,21 @@ export function LoginForm({ initialMode, notice: initialNotice }: { initialMode:
       </p>
 
       {notice && <p className="mt-4 rounded-xl bg-surface-2 p-3 text-sm">{notice}</p>}
+
+      {mode === "reset" && resetSentTo && (
+        <div className="mt-5 space-y-3 text-sm">
+          {/* Same message whether or not the address is registered (no account enumeration). */}
+          <p className="rounded-xl bg-surface-2 p-3">
+            <b>{resetSentTo}</b> が登録済みであれば、パスワード再設定のメールを送りました。メール内のリンクから1時間以内に新しいパスワードを設定してください。
+          </p>
+          <p className="text-xs text-ink-2">
+            ⚠️ 再送すると、それより前に送ったメールのリンクは使えなくなります。複数届いている場合は<b>いちばん新しいメール</b>のリンクを開いてください。
+          </p>
+          <button type="button" className="btn-ghost w-full" disabled={busy || cooldown > 0} onClick={resetPassword}>
+            {cooldown > 0 ? `再送できるまで ${cooldown} 秒` : "メールが届かないので再送する"}
+          </button>
+        </div>
+      )}
 
       {mode !== "reset" && (
         <>
@@ -187,6 +214,7 @@ export function LoginForm({ initialMode, notice: initialNotice }: { initialMode:
       )}
 
       <form
+        hidden={mode === "reset" && !!resetSentTo}
         className={`space-y-3 ${mode === "reset" ? "mt-5" : ""}`}
         onSubmit={(e) => {
           e.preventDefault();
@@ -220,8 +248,8 @@ export function LoginForm({ initialMode, notice: initialNotice }: { initialMode:
         )}
         {error && <p className="text-sm text-danger">{error}</p>}
         {unverified && (
-          <button type="button" className="btn-ghost w-full" disabled={busy} onClick={resendVerification}>
-            確認メールを再送する
+          <button type="button" className="btn-ghost w-full" disabled={busy || cooldown > 0} onClick={resendVerification}>
+            {cooldown > 0 ? `再送できるまで ${cooldown} 秒` : "確認メールを再送する"}
           </button>
         )}
         <button className="btn-primary w-full" disabled={busy}>
