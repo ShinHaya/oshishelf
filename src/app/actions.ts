@@ -7,7 +7,7 @@ import { z } from "zod";
 import { getViewer, requireProfile, SESSION_COOKIE } from "@/lib/session";
 import { deleteAccount } from "@/lib/data/account";
 import { createUser, getUser, getUserByHandle, updateUser } from "@/lib/data/users";
-import { deleteItems, getItem, publishItems, updateItem } from "@/lib/data/items";
+import { deleteItems, getItem, publishItems, setItemsVisibility, updateItem } from "@/lib/data/items";
 import { addWish, consumeQuota, follow, isFollowing, markAllRead, notify, removeWish, unfollow } from "@/lib/data/social";
 import { candidatesFromLinks, extractFromScreenshot, extractFromText, importCandidates, type ImportReport } from "@/lib/ai/agents/importer";
 import { generateBio, refreshTaste } from "@/lib/ai/agents/profiler";
@@ -212,6 +212,15 @@ export async function deleteItemsAction(ids: string[]): Promise<ActionResult<num
   const { uid } = await requireProfile();
   return attempt(async () => {
     const n = await deleteItems(uid, z.array(z.string()).max(300).parse(ids));
+    revalidatePath("/", "layout");
+    return n;
+  });
+}
+
+export async function updateItemsVisibilityAction(ids: string[], v: Visibility): Promise<ActionResult<number>> {
+  const { uid } = await requireProfile();
+  return attempt(async () => {
+    const n = await setItemsVisibility(uid, z.array(z.string()).max(500).parse(ids), visibility.parse(v));
     revalidatePath("/", "layout");
     return n;
   });

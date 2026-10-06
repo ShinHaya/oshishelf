@@ -170,3 +170,22 @@ export async function updateItem(ownerUid: string, id: string, patch: Partial<Pi
 export async function incrementClick(id: string) {
   await itemsCol().doc(id).update({ clickCount: FieldValue.increment(1) });
 }
+
+export async function setItemTags(updates: { id: string; tags: string[] }[]) {
+  for (let i = 0; i < updates.length; i += 400) {
+    const batch = db.batch();
+    updates.slice(i, i + 400).forEach((u) => batch.update(itemsCol().doc(u.id), { tags: u.tags }));
+    await batch.commit();
+  }
+}
+
+/** Change the visibility of several of the owner's items at once. Returns the number updated. */
+export async function setItemsVisibility(ownerUid: string, ids: string[], visibility: Visibility): Promise<number> {
+  const owned = (await getItems(ids)).filter((i) => i.ownerUid === ownerUid);
+  for (let i = 0; i < owned.length; i += 400) {
+    const batch = db.batch();
+    owned.slice(i, i + 400).forEach((it) => batch.update(itemsCol().doc(it.id), { visibility }));
+    await batch.commit();
+  }
+  return owned.length;
+}

@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { deleteItemsAction, publishDraftsAction, updateItemVisibilityAction } from "@/app/actions";
+import { deleteItemsAction, publishDraftsAction, updateItemsVisibilityAction, updateItemVisibilityAction } from "@/app/actions";
 import { CATEGORY_LABELS, VISIBILITY_LABELS, type Item, type Visibility } from "@/lib/types";
 
 const GUARD_STYLE = {
@@ -44,6 +44,18 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
       router.refresh();
     });
 
+  const [bulkVis, setBulkVis] = useState<Visibility>("public");
+  const applyBulkVisibility = () => {
+    const ids = [...selected];
+    setVis((m) => ({ ...m, ...Object.fromEntries(ids.map((id) => [id, bulkVis])) }));
+    if (mode === "draft") return; // drafts: applied when publishing
+    start(async () => {
+      const r = await updateItemsVisibilityAction(ids, bulkVis);
+      setMessage(r.ok ? `${r.data} 件の公開範囲を「${VISIBILITY_LABELS[bulkVis]}」にしました` : r.error);
+      router.refresh();
+    });
+  };
+
   const remove = () => {
     if (!confirm(`${selected.size} 件を削除します。よろしいですか？`)) return;
     start(async () => {
@@ -73,6 +85,18 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
             🛡️ 要確認 {flaggedCount} 件{filter === "flagged" ? "のみ表示中" : ""}
           </button>
         )}
+        <div className="flex items-center gap-1.5">
+          <select className="input !w-auto !py-1 text-xs" value={bulkVis} onChange={(e) => setBulkVis(e.target.value as Visibility)} aria-label="まとめて変更する公開範囲">
+            {(Object.keys(VISIBILITY_LABELS) as Visibility[]).map((v) => (
+              <option key={v} value={v}>
+                {VISIBILITY_LABELS[v]}
+              </option>
+            ))}
+          </select>
+          <button type="button" className="btn-ghost !px-3 !py-1 !text-xs" disabled={pending || selected.size === 0} onClick={applyBulkVisibility}>
+            選択した作品をこの公開範囲に
+          </button>
+        </div>
         <div className="ml-auto flex gap-2">
           <button type="button" className="btn-ghost !text-danger" disabled={pending || selected.size === 0} onClick={remove}>
             削除
