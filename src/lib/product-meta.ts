@@ -100,6 +100,12 @@ export async function readProductWithGemini(url: string): Promise<ProductMeta> {
   return { title: title || null, imageUrl: null, price: parsePrice(price), description: null };
 }
 
+/** DMM / FANZA cover images: prefer the large variant (…pl.jpg) over the small thumbnail (…ps.jpg / pt.jpg). */
+export function largeDmmImage(url: string | null): string | null {
+  if (!url || !/(ebook-assets|pics|doujin-assets)\.dmm\.(co\.jp|com)/.test(url)) return url;
+  return url.replace(/p[st]\.(jpg|webp)(\?.*)?$/, "pl.$1");
+}
+
 /** Steam exposes prices via its public store API rather than page metadata. */
 async function fetchSteamMeta(appId: string): Promise<ProductMeta | null> {
   const res = await fetch(`https://store.steampowered.com/api/appdetails?appids=${appId}&cc=jp&l=japanese`, { signal: AbortSignal.timeout(8000) });
@@ -141,6 +147,7 @@ export async function fetchProductMeta(url: string): Promise<ProductMeta> {
     if (/captcha|ロボットではありません/i.test(html) && !pt) title = null;
   }
   if (imageUrl?.startsWith("//")) imageUrl = `https:${imageUrl}`;
+  imageUrl = largeDmmImage(imageUrl);
   if (imageUrl && !/^https?:\/\//.test(imageUrl)) imageUrl = null;
 
   return { title: cleanTitle(title, info.shop), imageUrl, price, description: meta(html, "og:description"), genres: extractGenres(html) };

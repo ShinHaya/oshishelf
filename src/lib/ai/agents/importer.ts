@@ -68,17 +68,30 @@ function toCandidates(out: Extracted): ImportCandidate[] {
 }
 
 /** Links collected by the bookmarklet on a purchase-history page → product candidates. */
+/** Link texts on library/history pages that are UI labels, not product names. */
+const UI_LABEL = /^(\d+巻を)?(試し読み|立ち読み|単行本一覧|一覧|詳細|詳しく見る|もっと見る|作品詳細|商品詳細|レビュー|レビューを書く|購入|購入済み|カートに入れる|今すぐ読む|読む|続きを読む|閲覧|ダウンロード|再ダウンロード|シリーズ|閲覧シリーズ|お気に入り|ほしいものリスト|NEW|New|new)$/;
+/** Badges that shops prepend to titles inside the same link. */
+const BADGE_PREFIX = /^(独占あり|独占|新着|NEW|期間限定|予約|セール中?|割引|無料|ポイント\d+%還元)\s*/;
+
+function cleanLinkText(text: string): string {
+  let t = text.replace(/\s+/g, " ").trim();
+  for (let i = 0; i < 3 && BADGE_PREFIX.test(t); i++) t = t.replace(BADGE_PREFIX, "");
+  return UI_LABEL.test(t) ? "" : t.slice(0, 200);
+}
+
 export function candidatesFromLinks(links: { href: string; text: string; img?: string | null }[]): ImportCandidate[] {
   const byKey = new Map<string, ImportCandidate>();
   for (const l of links) {
     if (!looksLikeProductUrl(l.href)) continue;
-    const key = detectShop(l.href).productKey ?? l.href;
+    // Sub-pages (e.g. trial reading) collapse onto the product page and merge by product key.
+    const url = canonicalizeUrl(l.href);
+    const key = detectShop(url).productKey ?? url;
     const prev = byKey.get(key);
-    const title = l.text.replace(/\s+/g, " ").trim().slice(0, 200);
+    const title = cleanLinkText(l.text);
     // The same product often appears as an image link and a text link; merge them.
     byKey.set(key, {
-      url: l.href,
-      title: (prev?.title?.length ?? 0) >= title.length ? prev!.title : title,
+      url,
+      title: prev && prev.title.length >= title.length ? prev.title : title,
       imageUrl: prev?.imageUrl ?? l.img ?? null,
     });
   }
@@ -152,12 +165,13 @@ export async function importCandidates(uid: string, candidates: ImportCandidate[
     const info = detectShop(url);
     let { title, imageUrl = null, price = null } = c;
     let genres: string[] = [];
-    // R18-shop items are always fetched: their page genres become the only tags the AI may see.
-    if (!c.urlIsSearch && (!title || !imageUrl || info.adult)) {
+    // Always read the product page: its official title / cover beat link text scraped from a
+    // library page (which may be a label or carry badges), and R18 genres come from it too.
+    if (!c.urlIsSearch) {
       try {
         const meta = await fetchProductMeta(url);
-        title = title || meta.title || "";
-        imageUrl = imageUrl || meta.imageUrl;
+        title = meta.title || title || "";
+        imageUrl = meta.imageUrl || imageUrl;
         price = price ?? meta.price;
         genres = meta.genres ?? [];
       } catch {

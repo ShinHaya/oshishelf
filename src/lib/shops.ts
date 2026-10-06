@@ -16,6 +16,26 @@ function host(u: URL) {
   return u.hostname.replace(/^www\./, "");
 }
 
+const DMM_BOOK_NON_PRODUCT = new Set(["volumes", "tachiyomi", "review", "reviews", "series", "author"]);
+
+/**
+ * FANZA / DMM Books product URLs look like /product/{seriesId}/{contentId}/[tachiyomi/].
+ * Series lists (/volumes/) and other pages are not products. Note `?cid=` on these pages is a
+ * tracking value, not the content id.
+ */
+function dmmBookParts(u: URL): { series: string; cid: string } | null {
+  if (!u.hostname.startsWith("book.")) return null;
+  const m = u.pathname.match(/^\/product\/(\d+)\/([a-z0-9_]+)(?:\/|$)/i);
+  if (!m || DMM_BOOK_NON_PRODUCT.has(m[2].toLowerCase()) || !/\d/.test(m[2])) return null;
+  return { series: m[1], cid: m[2].toLowerCase() };
+}
+
+/** Content id for FANZA/DMM pages: book path segment, else a `cid=` in the path (video, doujin…). */
+function dmmContentId(u: URL): string | null {
+  if (u.hostname.startsWith("book.")) return dmmBookParts(u)?.cid ?? null;
+  return u.pathname.match(/cid=([a-z0-9_]+)/i)?.[1] ?? u.searchParams.get("cid");
+}
+
 /** Identify the shop, R18-ness and product key of a URL. Unknown shops fall back to the hostname. */
 export function detectShop(rawUrl: string): ShopInfo {
   let u: URL;
@@ -28,7 +48,7 @@ export function detectShop(rawUrl: string): ShopInfo {
   const path = u.pathname;
 
   if (h.endsWith("dmm.co.jp")) {
-    const cid = rawUrl.match(/cid=([a-z0-9_]+)/i)?.[1] ?? path.match(/\/product\/([^/]+\/[^/]+)/)?.[1] ?? null;
+    const cid = dmmContentId(u);
     const categoryHint: Category | null = h.startsWith("book.") || path.includes("/comic")
       ? "comic"
       : path.includes("/doujin")
@@ -41,7 +61,7 @@ export function detectShop(rawUrl: string): ShopInfo {
     return { shop: "fanza", label: "FANZA", adult: true, productKey: cid ? `fanza:${cid}` : null, categoryHint };
   }
   if (h.endsWith("dmm.com")) {
-    const id = rawUrl.match(/cid=([a-z0-9_]+)/i)?.[1] ?? path.match(/\/product\/([^/]+\/[^/]+)/)?.[1] ?? null;
+    const id = dmmContentId(u);
     const categoryHint: Category | null = h.startsWith("book.") ? "comic" : h.startsWith("games.") ? "game" : path.includes("/digital/") ? "video" : null;
     return { shop: "dmm", label: "DMM", adult: false, productKey: id ? `dmm:${id}` : null, categoryHint };
   }
@@ -93,7 +113,10 @@ export function looksLikeProductUrl(rawUrl: string): boolean {
     const u = new URL(rawUrl);
     const h = host(u);
     const p = u.pathname;
-    if (h.endsWith("dmm.co.jp") || h.endsWith("dmm.com")) return /cid=|\/product\/|\/detail\//.test(u.href);
+    if (h.endsWith("dmm.co.jp") || h.endsWith("dmm.com")) {
+      if (h.startsWith("book.")) return dmmBookParts(u) !== null;
+      return /cid=/.test(p) || /\/detail\//.test(p);
+    }
     if (h.endsWith("dlsite.com")) return /product_id\//.test(p);
     if (/amazon\.(co\.jp|com)$/.test(h)) return /\/(dp|gp\/product)\/[A-Z0-9]{10}/i.test(p);
     if (h.endsWith("rakuten.co.jp")) return /\/rb\/\d+/.test(p) || h.startsWith("item.");
@@ -114,6 +137,9 @@ export function canonicalizeUrl(rawUrl: string): string {
   if (info.shop === "amazon" && info.productKey) {
     return `https://www.amazon.co.jp/dp/${info.productKey.split(":")[1]}`;
   }
+  // Collapse book sub-pages (e.g. /tachiyomi/?cid=…) onto the product page so they merge with it.
+  const book = dmmBookParts(u);
+  if (book) return `https://${u.hostname}/product/${book.series}/${book.cid}/`;
   for (const key of [...u.searchParams.keys()]) {
     if (/^(utm_|ref|tag|af_id|ch|ch_id|i3_|_encoding|psc|th|qid|sr|keywords|crid|sprefix|dib)/i.test(key)) u.searchParams.delete(key);
   }
