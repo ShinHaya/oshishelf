@@ -61,22 +61,25 @@ export default async function ProfilePage(props: PageProps<"/u/[handle]">) {
               </span>
             </div>
           </div>
-          {isMe ? (
-            <div className="flex gap-2">
-              <Link href="/shelf" className="btn-ghost">
-                棚を編集
+          {/* Full-width row under the name on phones, top-right on wider screens. */}
+          <div className="flex w-full gap-2 sm:w-auto [&>*]:flex-1 sm:[&>*]:flex-none">
+            {isMe ? (
+              <>
+                <Link href="/shelf" className="btn-ghost">
+                  棚を編集
+                </Link>
+                <Link href="/settings" className="btn-ghost">
+                  設定
+                </Link>
+              </>
+            ) : me ? (
+              <FollowButton targetUid={owner.uid} initial={following} />
+            ) : (
+              <Link href="/login" className="btn-primary">
+                ログインしてフォロー
               </Link>
-              <Link href="/settings" className="btn-ghost">
-                設定
-              </Link>
-            </div>
-          ) : me ? (
-            <FollowButton targetUid={owner.uid} initial={following} />
-          ) : (
-            <Link href="/login" className="btn-primary">
-              ログインしてフォロー
-            </Link>
-          )}
+            )}
+          </div>
         </div>
         {owner.aiBio && (
           <div className="mt-4 rounded-xl bg-accent-soft p-4">
