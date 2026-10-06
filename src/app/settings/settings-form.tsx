@@ -56,6 +56,15 @@ export function SettingsForm({ profile }: { profile: UserProfile }) {
             <span className="block text-xs text-ink-2">ONにすると、フィードや他の人の棚に成人向け作品も表示されます。いつでもOFFに戻せます。</span>
           </span>
         </label>
+        <label className={`flex items-start gap-2 text-sm ${declared ? "" : "opacity-50"}`}>
+          <input type="checkbox" name="aiUseAdult" defaultChecked={profile.aiUseAdult} disabled={!declared} className="mt-1" />
+          <span>
+            自分の成人向け作品をAIの自己紹介・分身・相性分析に使う
+            <span className="block text-xs text-ink-2">
+              ONにすると、全体公開している成人向け作品の「ジャンルとタグ」だけをAIに渡します（タイトル・画像は渡しません）。その結果は、成人向け作品の表示をONにしている人にだけ見せます。OFFに戻すと、成人向け作品を反映した自己紹介文はすぐに非表示になります。
+            </span>
+          </span>
+        </label>
       </fieldset>
       {state && <p className={`text-sm ${state.ok ? "text-ok" : "text-danger"}`}>{state.ok ? "保存しました" : state.error}</p>}
       <button className="btn-primary" disabled={pending}>

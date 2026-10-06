@@ -8,9 +8,9 @@ import { recommendUsers } from "@/lib/ai/agents/matcher";
 import { ItemCard } from "@/components/item-card";
 import { Avatar } from "@/components/avatar";
 
-export default async function Home() {
+export default async function Home(props: PageProps<"/">) {
   const viewer = await getViewer();
-  if (!viewer?.profile) return <Landing />;
+  if (!viewer?.profile) return <Landing deleted={!!(await props.searchParams).deleted} />;
   const me = viewer.profile;
 
   const following = await listFollowing(me.uid);
@@ -74,11 +74,12 @@ export default async function Home() {
   );
 }
 
-async function Landing() {
+async function Landing({ deleted }: { deleted: boolean }) {
   const recent = await listRecentPublic(12).catch(() => []);
   const owners = await getUsers(recent.map((i) => i.ownerUid));
   return (
     <div className="space-y-10">
+      {deleted && <p className="card mt-4 p-4 text-center text-sm">退会の手続きが完了しました。これまでご利用いただきありがとうございました。</p>}
       <section className="py-10 text-center">
         <p className="chip mx-auto">Agentic AI × ファンコミュニティ</p>
         <h1 className="mt-4 font-display text-4xl font-bold leading-tight sm:text-5xl">

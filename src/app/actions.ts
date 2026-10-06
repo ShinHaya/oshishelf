@@ -1,9 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { getViewer, requireProfile } from "@/lib/session";
+import { getViewer, requireProfile, SESSION_COOKIE } from "@/lib/session";
+import { deleteAccount } from "@/lib/data/account";
 import { createUser, getUser, getUserByHandle, updateUser } from "@/lib/data/users";
 import { deleteItems, getItem, publishItems, updateItem } from "@/lib/data/items";
 import { addWish, consumeQuota, follow, isFollowing, markAllRead, notify, removeWish, unfollow } from "@/lib/data/social";
@@ -56,12 +58,19 @@ export async function updateSettingsAction(_: unknown, form: FormData): Promise<
         defaultVisibility: visibility,
         declareAdult: z.literal("on").optional(),
         showAdult: z.literal("on").optional(),
+        aiUseAdult: z.literal("on").optional(),
         twinEnabled: z.literal("on").optional(),
       })
       .parse(Object.fromEntries(form));
     const isAdult = profile.isAdult || input.declareAdult === "on";
+    // Owner consent for AI features to use their R18 items (as genres/tags). Default off.
+    const aiUseAdult = isAdult && input.aiUseAdult === "on";
     await updateUser(uid, {
       isAdult,
+      aiUseAdult,
+      // Withdrawing consent removes the R18-aware bio version immediately.
+      ...(!aiUseAdult && profile.aiBio?.adult ? { aiBio: { ...profile.aiBio, adult: null } } : {}),
+      ...(!aiUseAdult && profile.aiBioDraft?.adult ? { aiBioDraft: { ...profile.aiBioDraft, adult: null } } : {}),
       displayName: input.displayName,
       bio: input.bio,
       defaultVisibility: input.defaultVisibility,
@@ -218,7 +227,7 @@ export async function updateItemVisibilityAction(id: string, v: Visibility): Pro
 
 // ---------- AI agents ----------
 
-export async function generateBioAction(): Promise<ActionResult<{ bio: AiBio; steps: AgentStep[] }>> {
+export async function generateBioAction(): Promise<ActionResult<{ bio: AiBio; steps: AgentStep[]; adultNote: string | null }>> {
   const { uid } = await requireProfile();
   return attempt(async () => {
     await consumeQuota(uid, "bio");
@@ -228,25 +237,30 @@ export async function generateBioAction(): Promise<ActionResult<{ bio: AiBio; st
   });
 }
 
-export async function applyBioAction(text: string): Promise<ActionResult> {
+export async function applyBioAction(input: { text: string; adultText?: string | null }): Promise<ActionResult> {
   const { uid, profile } = await requireProfile();
   return attempt(async () => {
-    if (!profile.aiBioDraft) throw new Error("下書きがありません");
-    await updateUser(uid, { aiBio: { ...profile.aiBioDraft, text: z.string().trim().min(1).max(400).parse(text) }, aiBioDraft: null });
+    const draft = profile.aiBioDraft;
+    if (!draft) throw new Error("下書きがありません");
+    const text = z.string().trim().min(1).max(400).parse(input.text);
+    const adult = draft.adult && input.adultText ? { ...draft.adult, text: z.string().trim().min(1).max(400).parse(input.adultText) } : null;
+    await updateUser(uid, { aiBio: { ...draft, text, adult }, aiBioDraft: null });
     revalidatePath("/", "layout");
   });
 }
 
 export async function analyzeCompatAction(targetUid: string, force = false): Promise<ActionResult<Compatibility>> {
-  const { uid } = await requireProfile();
+  const { uid, profile } = await requireProfile();
   return attempt(async () => {
     if (targetUid === uid) throw new Error("自分自身とは比較できません");
+    const target = await getUser(targetUid);
+    if (!target) throw new Error("ユーザーが見つかりません");
     if (!force) {
-      const cached = await getCachedCompatibility(uid, targetUid);
+      const cached = await getCachedCompatibility(profile, target);
       if (cached && Date.now() - cached.generatedAt < 1000 * 60 * 60 * 24) return cached;
     }
     await consumeQuota(uid, "compat");
-    return analyzeCompatibility(uid, targetUid, true);
+    return analyzeCompatibility(profile, target, true);
   });
 }
 
@@ -258,7 +272,7 @@ export async function twinChatAction(handle: string, history: ChatTurn[], messag
     const msg = z.string().trim().min(1).max(500).parse(message);
     const hist = z.array(z.object({ role: z.enum(["user", "twin"]), text: z.string().max(2000) })).max(20).parse(history);
     await consumeQuota(uid, "twin");
-    return chatWithTwin(owner, uid, profile.displayName, hist, msg);
+    return chatWithTwin(owner, profile, hist, msg);
   });
 }
 
@@ -271,4 +285,16 @@ export async function runWatcherNowAction(): Promise<ActionResult<{ summary: str
     revalidatePath("/", "layout");
     return r;
   });
+}
+
+/** Permanently delete the signed-in user's account and data. The handle must be typed to confirm. */
+export async function deleteAccountAction(confirmHandle: string): Promise<ActionResult> {
+  const { uid, profile } = await requireProfile();
+  const res = await attempt(async () => {
+    if (confirmHandle.trim().replace(/^@/, "").toLowerCase() !== profile.handle) throw new Error("ハンドルが一致しません");
+    await deleteAccount(uid);
+    (await cookies()).delete(SESSION_COOKIE);
+  });
+  if (res.ok) redirect("/?deleted=1");
+  return res;
 }

@@ -19,7 +19,7 @@ export function shelfOverview(items: Item[]) {
 }
 
 export function itemBrief(i: Item) {
-  return { id: i.id, title: i.title, category: CATEGORY_LABELS[i.category], shop: i.shopLabel, tags: i.tags, price: i.price };
+  return { id: i.id, title: i.title, category: CATEGORY_LABELS[i.category], shop: i.shopLabel, tags: i.tags, price: i.price, ...(i.isAdult ? { adult: true } : {}) };
 }
 
 /** Simple keyword search over a shelf (title + tags). */

@@ -5,7 +5,7 @@ import { getViewer } from "@/lib/session";
 import { getUserByHandle } from "@/lib/data/users";
 import { listShelf } from "@/lib/data/items";
 import { isFollowing, wishedIds } from "@/lib/data/social";
-import { canSeeAdult, canSeeItem } from "@/lib/access";
+import { adultAiAllowed, canSeeAdult, canSeeItem } from "@/lib/access";
 import { getCachedCompatibility } from "@/lib/ai/agents/matcher";
 import { CATEGORY_LABELS, type Category, type Item } from "@/lib/types";
 import { Avatar } from "@/components/avatar";
@@ -31,13 +31,16 @@ export default async function ProfilePage(props: PageProps<"/u/[handle]">) {
     listShelf(owner.uid),
     me && !isMe ? isFollowing(me.uid, owner.uid) : Promise.resolve(false),
     me ? wishedIds(me.uid) : Promise.resolve(new Set<string>()),
-    me && !isMe ? getCachedCompatibility(me.uid, owner.uid) : Promise.resolve(null),
+    me && !isMe ? getCachedCompatibility(me, owner) : Promise.resolve(null),
   ]);
   const visible = shelf.filter((i) => canSeeItem(i, { viewerUid: me?.uid ?? null, viewerProfile: me, following }));
   // The viewer decides: R18 items show only for viewers who declared 18+ and turned display on.
   const showAdult = canSeeAdult(me);
   const adultHidden = visible.filter((i) => i.isAdult && !showAdult).length;
   const items = visible.filter((i) => showAdult || !i.isAdult);
+
+  // Bio A (reflects R18 genres) for viewers who opted in, while the owner allows it; otherwise bio B.
+  const bio = owner.aiBio ? (owner.aiBio.adult && adultAiAllowed(owner, me) ? owner.aiBio.adult : owner.aiBio) : null;
 
   const groups = new Map<Category, Item[]>();
   for (const it of items) groups.set(it.category, [...(groups.get(it.category) ?? []), it]);
@@ -82,13 +85,13 @@ export default async function ProfilePage(props: PageProps<"/u/[handle]">) {
             )}
           </div>
         </div>
-        {owner.aiBio && (
+        {bio && (
           <div className="mt-4 rounded-xl bg-accent-soft p-4">
             <p className="text-xs font-bold text-accent">✨ AIが棚から読み解いた自己紹介</p>
-            <p className="mt-1 font-display text-lg font-bold">{owner.aiBio.catchphrase}</p>
-            <p className="mt-1 text-sm leading-relaxed">{owner.aiBio.text}</p>
+            <p className="mt-1 font-display text-lg font-bold">{bio.catchphrase}</p>
+            <p className="mt-1 text-sm leading-relaxed">{bio.text}</p>
             <div className="mt-2 flex flex-wrap gap-1">
-              {owner.aiBio.traits.map((t) => (
+              {bio.traits.map((t) => (
                 <span key={t} className="chip !bg-surface">
                   #{t}
                 </span>

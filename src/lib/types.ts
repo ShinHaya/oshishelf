@@ -51,11 +51,19 @@ export interface Item {
   publishedAt: number | null;
 }
 
-export interface AiBio {
+export interface AiBioVariant {
   text: string;
   catchphrase: string;
   traits: string[];
+}
+
+export interface AiBio extends AiBioVariant {
   generatedAt: number;
+  /**
+   * Version "A" that also reflects the owner's R18 items (genres/tags only). Shown only to viewers
+   * who opted in to R18 display, and only while the owner allows AI to use their R18 items.
+   */
+  adult?: AiBioVariant | null;
 }
 
 export interface UserProfile {
@@ -70,6 +78,8 @@ export interface UserProfile {
   /** Self-declared 18+; required before R18 items can be shown. */
   isAdult: boolean;
   showAdult: boolean;
+  /** Owner consent: let AI features (bio / twin / compatibility) use this user's R18 items as genres & tags. */
+  aiUseAdult: boolean;
   defaultVisibility: Visibility;
   twinEnabled: boolean;
   tasteTags: string[];

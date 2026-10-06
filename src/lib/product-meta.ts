@@ -7,6 +7,19 @@ export interface ProductMeta {
   imageUrl: string | null;
   price: number | null;
   description: string | null;
+  /** Genre labels listed on the product page (FANZA / DMM / DLsite). */
+  genres?: string[];
+}
+
+/** Genre links on FANZA/DMM (`article=keyword`) and DLsite (`/genre/`) product pages. */
+function extractGenres(html: string): string[] {
+  const out = new Set<string>();
+  for (const m of html.matchAll(/<a[^>]+href=["']([^"']*(?:article=keyword|\/genre\/)[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    const text = decodeEntities(m[2].replace(/<[^>]+>/g, ""));
+    if (text && text.length <= 20) out.add(text);
+    if (out.size >= 8) break;
+  }
+  return [...out];
 }
 
 function decodeEntities(s: string): string {
@@ -130,5 +143,5 @@ export async function fetchProductMeta(url: string): Promise<ProductMeta> {
   if (imageUrl?.startsWith("//")) imageUrl = `https:${imageUrl}`;
   if (imageUrl && !/^https?:\/\//.test(imageUrl)) imageUrl = null;
 
-  return { title: cleanTitle(title, info.shop), imageUrl, price, description: meta(html, "og:description") };
+  return { title: cleanTitle(title, info.shop), imageUrl, price, description: meta(html, "og:description"), genres: extractGenres(html) };
 }

@@ -151,12 +151,15 @@ export async function importCandidates(uid: string, candidates: ImportCandidate[
     const url = c.urlIsSearch ? c.url : canonicalizeUrl(c.url);
     const info = detectShop(url);
     let { title, imageUrl = null, price = null } = c;
-    if (!c.urlIsSearch && (!title || !imageUrl)) {
+    let genres: string[] = [];
+    // R18-shop items are always fetched: their page genres become the only tags the AI may see.
+    if (!c.urlIsSearch && (!title || !imageUrl || info.adult)) {
       try {
         const meta = await fetchProductMeta(url);
         title = title || meta.title || "";
         imageUrl = imageUrl || meta.imageUrl;
         price = price ?? meta.price;
+        genres = meta.genres ?? [];
       } catch {
         // keep what we have; shops often block bots
       }
@@ -171,7 +174,7 @@ export async function importCandidates(uid: string, candidates: ImportCandidate[
       }
     }
     const searchShop = c.urlIsSearch ? shopSearchUrl(c.shopHint, c.title).shop : null;
-    return { url, info, title: title || url, imageUrl, price, searchShop, urlIsSearch: !!c.urlIsSearch };
+    return { url, info, title: title || url, imageUrl, price, genres, searchShop, urlIsSearch: !!c.urlIsSearch };
   });
 
   const enriched = await enrich(resolved.map((r) => ({ title: r.title, shop: r.info.label, adultShop: r.info.adult })));
@@ -188,7 +191,7 @@ export async function importCandidates(uid: string, candidates: ImportCandidate[
       imageUrl: r.imageUrl,
       price: r.price,
       category: r.info.categoryHint ?? enriched[i].category,
-      tags: enriched[i].tags,
+      tags: r.info.adult ? r.genres.slice(0, 6) : enriched[i].tags,
       // R18 items can be public; viewers decide whether to see them (canSeeAdult).
       isAdult: adult,
       visibility: defaultVisibility,

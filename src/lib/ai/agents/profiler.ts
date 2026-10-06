@@ -3,11 +3,12 @@ import { FunctionTool, LlmAgent } from "@google/adk";
 import { z } from "zod";
 import { Type, type Schema } from "@google/genai";
 import { adkModel, runAgentJson, type AgentStep } from "../adk";
-import { embed } from "../gemini";
-import { aiSafeItems } from "../../access";
+import { ADULT_GUIDANCE } from "../adult-policy";
+import { embed, SAFETY_SETTINGS } from "../gemini";
+import { aiItems, aiSafeItems } from "../../access";
 import { listShelf } from "../../data/items";
-import { setTasteVector, updateUser } from "../../data/users";
-import type { AiBio, Item } from "../../types";
+import { getUser, setTasteVector, updateUser } from "../../data/users";
+import type { AiBio, AiBioVariant, Item } from "../../types";
 import { CATEGORY_LABELS } from "../../types";
 import { itemBrief, searchShelf, shelfOverview, tasteText } from "./shelf-tools";
 
@@ -28,11 +29,12 @@ const INSTRUCTION = `あなたは購入履歴SNS「推し棚」のプロフィ�
 最後に次のJSONだけを出力してください:
 {"catchphrase": "15文字程度のキャッチコピー", "bio": "自己紹介文", "traits": ["嗜好を表す短いタグ", ...5個]}`;
 
-function buildAgent(items: Item[]) {
+function buildAgent(items: Item[], includeAdult: boolean) {
   return new LlmAgent({
     name: "profile_agent",
     model: adkModel(),
-    instruction: INSTRUCTION,
+    instruction: includeAdult ? `${INSTRUCTION}\n\n${ADULT_GUIDANCE}` : INSTRUCTION,
+    generateContentConfig: { safetySettings: SAFETY_SETTINGS },
     tools: [
       new FunctionTool({
         name: "get_shelf_overview",
@@ -80,25 +82,47 @@ export async function refreshTaste(uid: string, items?: Item[]): Promise<void> {
   await setTasteVector(uid, vector, tags);
 }
 
-/** Generate the AI self-introduction from the public shelf (ADK agent with tools). */
-export async function generateBio(uid: string): Promise<{ bio: AiBio; steps: AgentStep[] }> {
-  const items = aiSafeItems(await listShelf(uid));
-  if (items.length < 3) throw new Error("自己紹介を作るには、全体公開の作品が3件以上必要です");
-  const { data: parsed, steps } = await runAgentJson<{ catchphrase: string; bio: string; traits: string[] }>(
-    buildAgent(items),
+async function writeBio(uid: string, items: Item[], includeAdult: boolean) {
+  const { data, steps } = await runAgentJson<{ catchphrase: string; bio: string; traits: string[] }>(
+    buildAgent(items, includeAdult),
     uid,
     "わたしの棚を分析して自己紹介文を作ってください。",
     SCHEMA,
-    "bio は一人称「わたし」の120〜200文字の自己紹介文。",
+    `bio は一人称「わたし」の120〜200文字の自己紹介文。${includeAdult ? "性的な描写や露骨な語は含めない。" : ""}`,
   );
-  const bio: AiBio = {
-    text: String(parsed.bio).slice(0, 400),
-    catchphrase: String(parsed.catchphrase ?? "").slice(0, 40),
-    traits: (parsed.traits ?? []).map(String).slice(0, 6),
-    generatedAt: Date.now(),
+  const variant: AiBioVariant = {
+    text: String(data.bio).slice(0, 400),
+    catchphrase: String(data.catchphrase ?? "").slice(0, 40),
+    traits: (data.traits ?? []).map(String).slice(0, 6),
   };
+  return { variant, steps };
+}
+
+/**
+ * Generate the AI self-introduction (ADK agent with tools). Version B never sees R18 items;
+ * version A also reads them (as genres/tags) when the owner allowed it. Both are drafts until approved.
+ */
+export async function generateBio(uid: string): Promise<{ bio: AiBio; steps: AgentStep[]; adultNote: string | null }> {
+  const [shelf, owner] = await Promise.all([listShelf(uid), getUser(uid)]);
+  const safe = aiSafeItems(shelf);
+  if (safe.length < 3) throw new Error("自己紹介を作るには、全体公開の作品（成人向けを除く）が3件以上必要です");
+  const b = await writeBio(uid, safe, false);
+
+  let adult: AiBioVariant | null = null;
+  let adultNote: string | null = null;
+  const withAdult = aiItems(shelf, true);
+  if (owner?.isAdult && owner.aiUseAdult && withAdult.some((i) => i.isAdult)) {
+    try {
+      adult = (await writeBio(uid, withAdult, true)).variant;
+    } catch {
+      // Safety filters may block it; version B still works.
+      adultNote = "成人向け作品を含む版は、AIの安全フィルタにより作成できませんでした。";
+    }
+  }
+
+  const bio: AiBio = { ...b.variant, adult, generatedAt: Date.now() };
   // Saved as a draft: the user reviews and edits it before it appears on their profile.
   await updateUser(uid, { aiBioDraft: bio });
-  await refreshTaste(uid, items);
-  return { bio, steps };
+  await refreshTaste(uid, shelf);
+  return { bio, steps: b.steps, adultNote };
 }

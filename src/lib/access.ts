@@ -1,4 +1,4 @@
-import type { Item, UserProfile } from "./types";
+import { CATEGORY_LABELS, type Item, type UserProfile } from "./types";
 
 export interface ViewContext {
   viewerUid: string | null;
@@ -21,10 +21,27 @@ export function canSeeAdult(viewer: UserProfile | null): boolean {
   return !!viewer?.isAdult && !!viewer.showAdult;
 }
 
+/** R18 items are shown to the model without title, image or URL: only shop, category and genre tags. */
+export function redactAdult(item: Item): Item {
+  return { ...item, title: `成人向け作品（${item.shopLabel}・${CATEGORY_LABELS[item.category]}）`, imageUrl: null, url: "", note: "" };
+}
+
 /**
- * Items that may be sent to the LLM for public-facing output (bio, twin chat, matching):
- * published, fully public and non-adult only, so AI output can never leak restricted items.
+ * Items an AI feature may read for public-facing output (bio, twin chat, matching): published and
+ * fully public only, so AI output can never leak restricted items. R18 items are included only when
+ * `includeAdult` is set, and always redacted to genres/tags.
  */
+export function aiItems(items: Item[], includeAdult: boolean): Item[] {
+  return items
+    .filter((i) => i.status === "published" && i.visibility === "public" && (!i.isAdult || includeAdult))
+    .map((i) => (i.isAdult ? redactAdult(i) : i));
+}
+
 export function aiSafeItems(items: Item[]): Item[] {
-  return items.filter((i) => i.status === "published" && i.visibility === "public" && !i.isAdult);
+  return aiItems(items, false);
+}
+
+/** The owner's R18 items may inform AI output for this viewer only if both sides opted in. */
+export function adultAiAllowed(owner: UserProfile, viewer: UserProfile | null): boolean {
+  return owner.isAdult && owner.aiUseAdult && canSeeAdult(viewer);
 }
