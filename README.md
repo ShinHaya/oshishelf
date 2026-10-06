@@ -9,6 +9,7 @@ FANZA・DLsite・Amazon・Steam など、どこで買った作品も「棚」に
 第5回 Agentic AI Hackathon with Google Cloud 応募作品。
 
 - デプロイ URL: https://oshishelf-948562731.asia-northeast1.run.app
+- ログイン: Google アカウント、またはメールアドレス
 - 審査用アカウント: ログイン画面の「デモアカウントでログイン」ボタン（`demo@oshishelf.app` / `oshishelf-demo-2026`）
 
 ## 解決したい課題

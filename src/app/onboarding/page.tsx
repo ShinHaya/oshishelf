@@ -11,7 +11,7 @@ export default async function OnboardingPage() {
   if (viewer.profile) redirect("/");
   return (
     <div className="mx-auto max-w-md py-10">
-      <OnboardingForm />
+      <OnboardingForm defaultName={viewer.name ?? ""} />
     </div>
   );
 }

@@ -12,6 +12,8 @@ export const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 5;
 export interface Viewer {
   uid: string;
   email: string | null;
+  /** Display name from the identity provider (e.g. Google), used to prefill onboarding. */
+  name: string | null;
   profile: UserProfile | null;
 }
 
@@ -23,7 +25,7 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
   try {
     const decoded = await adminAuth.verifySessionCookie(token, true);
     const profile = await getUser(decoded.uid);
-    return { uid: decoded.uid, email: decoded.email ?? null, profile };
+    return { uid: decoded.uid, email: decoded.email ?? null, name: typeof decoded.name === "string" ? decoded.name : null, profile };
   } catch {
     return null;
   }
