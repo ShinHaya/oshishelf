@@ -94,9 +94,6 @@ async function Landing({ deleted }: { deleted: boolean }) {
           <Link href="/login?mode=signup" className="btn-primary !px-6 !py-3 !text-base">
             棚をつくる
           </Link>
-          <Link href="/login" className="btn-ghost !px-6 !py-3 !text-base">
-            デモを見る
-          </Link>
         </div>
       </section>
       <section className="grid gap-3 sm:grid-cols-3">
