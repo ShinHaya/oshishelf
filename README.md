@@ -33,6 +33,11 @@ FANZA・DLsite・Amazon・Steam など、どこで買った作品も「棚」に
 
 ## アーキテクチャ
 
+![システムアーキテクチャ](docs/architecture.png)
+
+<details>
+<summary>Mermaid 版</summary>
+
 ```mermaid
 flowchart LR
   subgraph Browser
@@ -65,6 +70,8 @@ flowchart LR
   U -->|/go/:id 購入リンク| SHOP
 ```
 
+</details>
+
 ## セキュリティ・制御
 
 - **ログイン情報を預からない**: ログイン必須の購入履歴ページは、ユーザー自身のブラウザ上でブックマークレットが読み取り、商品リンクだけを推し棚へ渡す。
@@ -74,6 +81,12 @@ flowchart LR
 - **エージェントの権限制限**: ツールは読み取り中心で、通知・検索には 1 回の実行あたりの上限がある。モデルが返した item id は実在チェックしてから使う。
 - **コスト・乱用対策**: ユーザー × 機能ごとの 1 日あたり AI 利用上限。Vertex AI の 429 は指数バックオフで再試行。
 - **認証**: Firebase Auth の ID トークンを httpOnly セッション Cookie に交換。Firestore はクライアントからの直接アクセスをルールで全面拒否し、サーバー（最小権限のサービスアカウント）経由のみ。cron エンドポイントは Cloud Scheduler の OIDC トークン（audience・サービスアカウント）を検証。
+
+## 提出資料
+
+- [Zenn 記事の下書き](docs/zenn-article.md)
+- [デモ動画の台本](docs/demo-video-script.md)
+- [提出チェックリストとプロジェクト説明文](docs/submission.md)
 
 ## 技術スタック
 

@@ -1,0 +1,176 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1020" viewBox="0 0 1600 1020" font-family="'Noto Sans JP', 'Hiragino Sans', sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b5d53"/>
+    </marker>
+    <marker id="arrowA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#e2567a"/>
+    </marker>
+    <style>
+      .title { font-size: 34px; font-weight: 700; fill: #2a211c; }
+      .sub { font-size: 17px; fill: #6b5d53; }
+      .h { font-size: 20px; font-weight: 700; fill: #2a211c; }
+      .t { font-size: 15px; fill: #2a211c; }
+      .s { font-size: 13px; fill: #6b5d53; }
+      .lbl { font-size: 13px; fill: #6b5d53; }
+      .lblA { font-size: 13px; fill: #c23d61; font-weight: 700; }
+      .box { fill: #ffffff; stroke: #e7ddd1; stroke-width: 2; }
+      .gcp { fill: #f2f6fd; stroke: #4285f4; stroke-width: 2; stroke-dasharray: 8 6; }
+      .run { fill: #ffffff; stroke: #4285f4; stroke-width: 2.5; }
+      .agent { fill: #fde6ec; stroke: #e2567a; stroke-width: 1.5; }
+      .pipe { fill: #f4ede4; stroke: #c89b6d; stroke-width: 1.5; }
+      .line { stroke: #6b5d53; stroke-width: 2; fill: none; }
+      .lineA { stroke: #e2567a; stroke-width: 2.5; fill: none; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1020" fill="#fbf7f2"/>
+  <text x="40" y="58" class="title">推し棚 OshiShelf — System Architecture</text>
+  <text x="40" y="88" class="sub">購入履歴を公開してファン同士がつながるSNS × 6つのAIエージェント（Google Cloud / Vertex AI / ADK）</text>
+
+  <!-- ===== Browser ===== -->
+  <rect x="40" y="130" width="300" height="560" rx="18" class="box"/>
+  <text x="62" y="166" class="h">ユーザーのブラウザ</text>
+
+  <rect x="62" y="186" width="256" height="120" rx="12" fill="#fbf7f2" stroke="#e7ddd1"/>
+  <text x="80" y="214" class="t" font-weight="700">推し棚 Web UI</text>
+  <text x="80" y="238" class="s">棚・フィード・相性・分身チャット</text>
+  <text x="80" y="258" class="s">取り込み/下書き確認（人が承認）</text>
+  <text x="80" y="278" class="s">Next.js React 19 / Tailwind</text>
+
+  <rect x="62" y="326" width="256" height="128" rx="12" fill="#fbf7f2" stroke="#e7ddd1"/>
+  <text x="80" y="354" class="t" font-weight="700">ブックマークレット</text>
+  <text x="80" y="378" class="s">ショップの購入履歴ページ上で実行</text>
+  <text x="80" y="398" class="s">商品リンクだけを抽出し postMessage</text>
+  <text x="80" y="418" class="s">🔒 ログイン情報は預からない</text>
+  <text x="80" y="438" class="s">（スクショ/テキスト貼付でも可）</text>
+
+  <rect x="62" y="474" width="256" height="100" rx="12" fill="#fbf7f2" stroke="#e7ddd1"/>
+  <text x="80" y="502" class="t" font-weight="700">Firebase Auth SDK</text>
+  <text x="80" y="526" class="s">Google / メール（確認必須）</text>
+  <text x="80" y="546" class="s">Firebase Auth と直接通信し</text>
+  <text x="80" y="564" class="s">IDトークンをサーバーへ渡す</text>
+
+  <rect x="62" y="586" width="256" height="82" rx="12" fill="#fbf7f2" stroke="#e7ddd1"/>
+  <text x="80" y="614" class="t" font-weight="700">購入リンク /go/:id</text>
+  <text x="80" y="638" class="s">公開範囲チェック → ショップへ</text>
+
+  <!-- ===== Google Cloud ===== -->
+  <rect x="390" y="118" width="1170" height="800" rx="22" class="gcp"/>
+  <text x="414" y="152" class="h" fill="#1a56c4">Google Cloud（asia-northeast1）</text>
+
+  <!-- Cloud Run -->
+  <rect x="414" y="172" width="640" height="560" rx="16" class="run"/>
+  <text x="436" y="206" class="h">Cloud Run — Next.js 16（App Router / Server Actions）</text>
+  <text x="436" y="230" class="s">専用サービスアカウント（最小権限） / httpOnly セッションCookie / ユーザー別AI利用上限</text>
+
+  <!-- pipeline -->
+  <rect x="436" y="250" width="596" height="132" rx="12" class="pipe"/>
+  <text x="454" y="278" class="t" font-weight="700">📥 取り込みパイプライン</text>
+  <text x="454" y="302" class="s">URL・スクショ(Vision)・テキスト・</text>
+  <text x="454" y="322" class="s">ブックマークレットから商品を抽出</text>
+  <text x="454" y="342" class="s">→ 商品ページ取得（SSRF対策 / URL Context）</text>
+  <text x="454" y="362" class="s">→ 分類・タグ付け → 下書きとして保存</text>
+  <rect x="790" y="264" width="226" height="100" rx="10" class="agent"/>
+  <text x="806" y="292" class="t" font-weight="700">🛡️ プライバシーガード</text>
+  <text x="806" y="314" class="s">健康・金融・ギフト・個人情報</text>
+  <text x="806" y="334" class="s">R18 を検出 → 公開範囲を提案</text>
+  <text x="806" y="354" class="s">R18タイトルはAIに送らない</text>
+
+  <!-- ADK agents -->
+  <text x="436" y="414" class="t" font-weight="700">Agent Development Kit（@google/adk）エージェント</text>
+  <rect x="436" y="428" width="288" height="110" rx="12" class="agent"/>
+  <text x="452" y="456" class="t" font-weight="700">✍️ プロフィールエージェント</text>
+  <text x="452" y="480" class="s">棚を探索するツールで嗜好を推論</text>
+  <text x="452" y="500" class="s">自己紹介を下書き → 本人が承認</text>
+  <text x="452" y="520" class="s">tools: overview / by_category / search</text>
+
+  <rect x="744" y="428" width="288" height="110" rx="12" class="agent"/>
+  <text x="760" y="456" class="t" font-weight="700">🤝 相性マッチング</text>
+  <text x="760" y="480" class="s">2人の棚を比較し相性・おすすめ・</text>
+  <text x="760" y="500" class="s">話しかけ例を生成（id 実在チェック）</text>
+  <text x="760" y="520" class="s">tools: compare / search_their / mine</text>
+
+  <rect x="436" y="552" width="288" height="110" rx="12" class="agent"/>
+  <text x="452" y="580" class="t" font-weight="700">💬 AI分身チャット</text>
+  <text x="452" y="604" class="s">公開棚だけを知る「分身」が回答</text>
+  <text x="452" y="624" class="s">おすすめは購入リンクに変換</text>
+  <text x="452" y="644" class="s">tools: overview / search / recent</text>
+
+  <rect x="744" y="552" width="288" height="110" rx="12" class="agent"/>
+  <text x="760" y="580" class="t" font-weight="700">👀 ウォッチャー（自律巡回）</text>
+  <text x="760" y="604" class="s">ほしい物の値下がり・新作を調査</text>
+  <text x="760" y="624" class="s">重複チェック後に通知（上限つき）</text>
+  <text x="760" y="644" class="s">実行ログを agentRuns に監査記録</text>
+
+  <text x="436" y="692" class="s">回答がJSONでなければスキーマ制約つきで整形</text>
+  <text x="436" y="712" class="s">Vertex AI の429は指数バックオフで再試行</text>
+
+  <!-- Vertex AI -->
+  <rect x="1100" y="172" width="436" height="236" rx="16" class="box"/>
+  <text x="1122" y="206" class="h">Vertex AI</text>
+  <text x="1122" y="236" class="t">Gemini 2.5 Flash（エージェント・Vision）</text>
+  <text x="1122" y="262" class="t">Gemini 2.5 Flash-Lite（分類・ガード）</text>
+  <text x="1122" y="288" class="t">gemini-embedding-001（嗜好ベクトル）</text>
+  <text x="1122" y="314" class="t">Google Search グラウンディング（新作）</text>
+  <text x="1122" y="340" class="t">URL Context（商品ページ読取）</text>
+  <text x="1122" y="372" class="s">APIキー不要：サービスアカウントで認証</text>
+
+  <!-- Firestore -->
+  <rect x="1100" y="430" width="436" height="210" rx="16" class="box"/>
+  <text x="1122" y="464" class="h">Firestore</text>
+  <text x="1122" y="494" class="t">users / items / follows / wishes</text>
+  <text x="1122" y="520" class="t">notifications / compat / agentRuns / usage</text>
+  <text x="1122" y="548" class="t">🔎 ベクトル検索（tasteVector 768次元）</text>
+  <text x="1122" y="578" class="s">セキュリティルールでクライアント直接アクセスを全面拒否</text>
+  <text x="1122" y="600" class="s">（サーバー経由のみ）</text>
+
+  <!-- Firebase Auth -->
+  <rect x="1100" y="662" width="436" height="90" rx="16" class="box"/>
+  <text x="1122" y="696" class="h">Firebase Authentication</text>
+  <text x="1122" y="724" class="s">IDトークン → セッションCookie（未確認メールは発行しない）</text>
+
+  <!-- Scheduler -->
+  <rect x="414" y="770" width="330" height="120" rx="16" class="box"/>
+  <text x="436" y="804" class="h">Cloud Scheduler</text>
+  <text x="436" y="830" class="t">毎朝 8:00 JST</text>
+  <text x="436" y="854" class="s">OIDCトークン（audience・SA を検証）</text>
+  <text x="436" y="874" class="s">→ /api/cron/watch</text>
+
+  <!-- Build -->
+  <rect x="770" y="770" width="284" height="120" rx="16" class="box"/>
+  <text x="792" y="804" class="h">Cloud Build</text>
+  <text x="792" y="830" class="t">GitHub → コンテナ</text>
+  <text x="792" y="854" class="s">Artifact Registry → Cloud Run</text>
+  <text x="792" y="874" class="s">予算アラート設定済み</text>
+
+  <!-- Shops -->
+  <rect x="1100" y="780" width="436" height="110" rx="16" fill="#fff" stroke="#c89b6d" stroke-width="2"/>
+  <text x="1122" y="814" class="h">ショップ（外部）</text>
+  <text x="1122" y="842" class="t">FANZA / DLsite / Amazon / Steam / 楽天 / BOOTH …</text>
+  <text x="1122" y="866" class="s">商品ページ取得（公開ページのみ） / 購入リンク先</text>
+
+  <!-- ===== Arrows ===== -->
+  <!-- UI -> Cloud Run -->
+  <path d="M318 246 L414 246" class="line" marker-end="url(#arrow)"/>
+  <text x="326" y="236" class="lbl">HTTPS</text>
+  <!-- bookmarklet -> pipeline -->
+  <path d="M318 390 C370 390 380 330 436 330" class="lineA" marker-end="url(#arrowA)"/>
+  <text x="326" y="378" class="lblA">商品リンク</text>
+  <!-- go -> shops -->
+  <path d="M318 628 L365 628 L365 990 L1318 990 L1318 894" class="line" marker-end="url(#arrow)"/>
+  <text x="760" y="1010" class="lbl">購入リンクからショップへ（アフィリエイト対応）</text>
+
+  <!-- Cloud Run -> Vertex -->
+  <path d="M1054 290 L1100 290" class="lineA" marker-end="url(#arrowA)"/>
+  <!-- Cloud Run -> Firestore -->
+  <path d="M1054 535 L1100 535" class="line" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+  <!-- Cloud Run -> Firebase Auth -->
+  <path d="M1054 706 L1100 706" class="line" marker-end="url(#arrow)"/>
+  <!-- Scheduler -> watcher -->
+  <path d="M730 770 C740 730 800 700 820 664" class="lineA" marker-end="url(#arrowA)"/>
+  <text x="690" y="756" class="lblA">OIDC</text>
+  <!-- pipeline fetch -> shops -->
+  <path d="M1054 372 L1077 372 L1077 835 L1098 835" class="line" marker-end="url(#arrow)" stroke-dasharray="5 5"/>
+  <text x="1071" y="692" class="lbl" transform="rotate(-90 1071 692)">SSRF対策つき取得</text>
+</svg>
