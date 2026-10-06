@@ -6,9 +6,12 @@ import type { ImportReport } from "@/lib/ai/agents/importer";
 import { ImportResult } from "../import-tabs";
 
 interface Payload {
-  type: "oshishelf:links";
+  type: "oshishelf:cards" | "oshishelf:links";
   page: string;
-  links: { href: string; text: string; img?: string | null }[];
+  title?: string;
+  cards?: { href: string; text: string; context: string; section: string; imgs: { src: string; alt: string }[]; page: number }[];
+  /** Older bookmarklets. */
+  links?: { href: string; text: string; img?: string | null }[];
   text?: string;
 }
 
@@ -20,7 +23,7 @@ export function Receiver() {
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       // The sender is the shop page; its data is treated as untrusted input and validated server-side.
-      if (e.source !== window.opener || e.data?.type !== "oshishelf:links") return;
+      if (e.source !== window.opener || (e.data?.type !== "oshishelf:cards" && e.data?.type !== "oshishelf:links")) return;
       setPayload(e.data as Payload);
     };
     window.addEventListener("message", onMessage);
@@ -38,6 +41,8 @@ export function Receiver() {
     );
   }
 
+  const count = payload.cards?.length ?? payload.links?.length ?? 0;
+  const pages = payload.cards ? Math.max(1, ...payload.cards.map((c) => c.page)) : 1;
   let host = "";
   try {
     host = new URL(payload.page).hostname;
@@ -47,7 +52,7 @@ export function Receiver() {
     <div className="card space-y-3 p-6">
       <h1 className="font-display text-xl font-bold">📥 {host} から取り込み</h1>
       <p className="text-sm text-ink-2">
-        ページ上のリンク {payload.links.length} 件を受け取りました。商品ページへのリンクだけを抽出し、見つからない場合はページのテキストからAIが商品名を読み取ります。
+        {pages > 1 ? `${pages}ページ分の` : "ページ上の"}リンク {count} 件を受け取りました。取り込みエージェントが、購入した商品だけを選び出します（おすすめ・広告・試し読みなどは除外します）。
       </p>
       {!result?.ok && (
         <button
@@ -55,11 +60,11 @@ export function Receiver() {
           disabled={pending}
           onClick={() =>
             start(async () => {
-              setResult(await importBulkAction({ page: payload.page, links: payload.links, text: payload.text }));
+              setResult(await importBulkAction({ page: payload.page, title: payload.title, cards: payload.cards, links: payload.links, text: payload.text }));
             })
           }
         >
-          {pending ? "取り込み中…（商品ページを確認しています）" : "取り込む"}
+          {pending ? "エージェントが購入履歴を読み取り中…（1分ほどかかることがあります）" : "取り込む"}
         </button>
       )}
       <ImportResult state={result} />

@@ -7,7 +7,7 @@ import { createDrafts, type NewItem } from "../../data/items";
 import type { Category, ImportCandidate, ImportSource, Visibility } from "../../types";
 import { runPrivacyGuard } from "./guard";
 
-const MAX_ITEMS_PER_IMPORT = 80;
+export const MAX_ITEMS_PER_IMPORT = 150;
 
 const listSchema: Schema = {
   type: Type.OBJECT,
@@ -31,10 +31,13 @@ const listSchema: Schema = {
 
 type Extracted = { items: { title: string; shop: string; price?: number | null; url?: string | null }[] };
 
-const EXTRACT_SYSTEM = `あなたはECサイトの購入履歴を読み取るアシスタントです。
-購入した「商品」だけを列挙し、広告・おすすめ・ナビゲーション・注文番号・配送先・氏名・住所・カード情報などは絶対に含めないでください。
-商品名の中に贈り先・宛名・氏名・メッセージが含まれている場合は、その部分を取り除いた商品名にしてください。
-同じ商品は1回だけ出力してください。`;
+const EXTRACT_SYSTEM = `あなたは購入履歴SNS「推し棚」の取り込みエージェントです。ECサイトの購入履歴・注文履歴・ライブラリ・本棚から、ユーザーが購入した商品を漏れなく正確に列挙します。
+- 含める: 購入済みとして並んでいる商品すべて（同じ注文の複数商品も別々に）。ショップの種類は問わない。
+- 除外: 「おすすめ」「この商品を買った人は」「関連商品」「ランキング」「広告」「最近チェックした商品」の枠、ナビゲーション、ボタン（試し読み・再度購入・レビューを書く・配送状況・領収書）。
+- title: 画面に書かれた正式な商品名。「独占」「NEW」「セール」などのバッジ、価格、日付は含めない。巻数・版・副題は残す。
+- 商品名の中に贈り先・宛名・氏名・メッセージが含まれている場合は、その部分を取り除く。
+- 注文番号・配送先・氏名・住所・カード情報などの個人情報は絶対に出力しない。
+- 同じ商品は1回だけ出力する。`;
 
 /** Screenshot of a purchase-history page → product candidates (Gemini multimodal). */
 export async function extractFromScreenshot(base64: string, mimeType: string): Promise<ImportCandidate[]> {
@@ -68,36 +71,6 @@ function toCandidates(out: Extracted): ImportCandidate[] {
 }
 
 /** Links collected by the bookmarklet on a purchase-history page → product candidates. */
-/** Link texts on library/history pages that are UI labels, not product names. */
-const UI_LABEL = /^(\d+巻を)?(試し読み|立ち読み|単行本一覧|一覧|詳細|詳しく見る|もっと見る|作品詳細|商品詳細|レビュー|レビューを書く|購入|購入済み|カートに入れる|今すぐ読む|読む|続きを読む|閲覧|ダウンロード|再ダウンロード|シリーズ|閲覧シリーズ|お気に入り|ほしいものリスト|NEW|New|new)$/;
-/** Badges that shops prepend to titles inside the same link. */
-const BADGE_PREFIX = /^(独占あり|独占|新着|NEW|期間限定|予約|セール中?|割引|無料|ポイント\d+%還元)\s*/;
-
-function cleanLinkText(text: string): string {
-  let t = text.replace(/\s+/g, " ").trim();
-  for (let i = 0; i < 3 && BADGE_PREFIX.test(t); i++) t = t.replace(BADGE_PREFIX, "");
-  return UI_LABEL.test(t) ? "" : t.slice(0, 200);
-}
-
-export function candidatesFromLinks(links: { href: string; text: string; img?: string | null }[]): ImportCandidate[] {
-  const byKey = new Map<string, ImportCandidate>();
-  for (const l of links) {
-    if (!looksLikeProductUrl(l.href)) continue;
-    // Sub-pages (e.g. trial reading) collapse onto the product page and merge by product key.
-    const url = canonicalizeUrl(l.href);
-    const key = detectShop(url).productKey ?? url;
-    const prev = byKey.get(key);
-    const title = cleanLinkText(l.text);
-    // The same product often appears as an image link and a text link; merge them.
-    byKey.set(key, {
-      url,
-      title: prev && prev.title.length >= title.length ? prev.title : title,
-      imageUrl: prev?.imageUrl ?? l.img ?? null,
-    });
-  }
-  return [...byKey.values()].slice(0, MAX_ITEMS_PER_IMPORT * 2);
-}
-
 const enrichSchema: Schema = {
   type: Type.OBJECT,
   properties: {
@@ -152,6 +125,11 @@ export interface ImportReport {
   created: number;
   skipped: number;
   flagged: number;
+  /** Bulk import only: what the reading agent did. */
+  detected?: number;
+  excluded?: number;
+  recovered?: number;
+  notes?: string[];
 }
 
 /**
@@ -170,7 +148,9 @@ export async function importCandidates(uid: string, candidates: ImportCandidate[
     if (!c.urlIsSearch) {
       try {
         const meta = await fetchProductMeta(url);
-        title = meta.title || title || "";
+        // Official page title wins, unless it is generic (site name only) — then keep the card's title.
+        const generic = !meta.title || meta.title.length < 2 || /^(amazon|amazon\.co\.jp|fanza|dmm|dlsite|楽天|rakuten|booth|steam)( |$)/i.test(meta.title);
+        title = (!generic && meta.title) || title || "";
         imageUrl = meta.imageUrl || imageUrl;
         price = price ?? meta.price;
         genres = meta.genres ?? [];

@@ -3,15 +3,9 @@ import Link from "next/link";
 import { requireProfile } from "@/lib/session";
 import { listDrafts } from "@/lib/data/items";
 import { ImportTabs } from "./import-tabs";
+import { bookmarkletHref } from "@/lib/bookmarklet";
 
 export const metadata: Metadata = { title: "購入履歴を取り込む" };
-
-function bookmarkletCode(origin: string) {
-  // Runs on the shop's purchase-history page in the user's own logged-in browser.
-  // It only reads links/text from the page and hands them to our receiver window via postMessage.
-  const src = `(()=>{const O=${JSON.stringify(origin)};const L=[];document.querySelectorAll('a[href]').forEach(a=>{const i=a.querySelector('img');L.push({href:a.href,text:(a.innerText||(i&&i.alt)||a.title||'').trim().slice(0,300),img:i?(i.currentSrc||i.src||null):null})});const T=(document.body.innerText||'').slice(0,60000);const w=window.open(O+'/import/receive','oshishelf_import');if(!w){alert('ポップアップを許可してください');return}const f=e=>{if(e.origin===O&&e.data==='oshishelf:ready'){w.postMessage({type:'oshishelf:links',page:location.href,links:L.slice(0,3000),text:T},O);removeEventListener('message',f)}};addEventListener('message',f)})()`;
-  return `javascript:${encodeURIComponent(src)}`;
-}
 
 export default async function ImportPage() {
   const { uid } = await requireProfile();
@@ -31,7 +25,7 @@ export default async function ImportPage() {
           <span className="btn-primary">確認して公開 →</span>
         </Link>
       )}
-      <ImportTabs bookmarklet={bookmarkletCode(origin)} />
+      <ImportTabs bookmarklet={bookmarkletHref(origin)} />
     </div>
   );
 }

@@ -17,10 +17,22 @@ export function ImportResult({ state }: { state: ActionResult<ImportReport> | nu
   const r = state.data;
   return (
     <div className="rounded-xl bg-surface-2 p-3 text-sm">
+      {r.detected != null && (
+        <p className="mb-1 text-ink-2">
+          🤖 取り込みエージェントが購入商品を <b>{r.detected}</b> 件検出
+          {r.excluded ? `（おすすめ・広告・補助リンクなど ${r.excluded} 件を除外）` : ""}
+          {r.recovered ? `。再確認で ${r.recovered} 件の見落としを回収` : ""}
+        </p>
+      )}
       <p>
         ✅ <b>{r.created}</b> 件を下書きに追加しました
         {r.skipped > 0 && `（重複 ${r.skipped} 件はスキップ）`}
       </p>
+      {r.notes?.map((n) => (
+        <p key={n} className="mt-1 text-xs text-warn">
+          ℹ️ {n}
+        </p>
+      ))}
       {r.flagged > 0 && <p className="mt-1 text-warn">🛡️ プライバシーガードが {r.flagged} 件を要確認としてマークしました</p>}
       {r.created > 0 && (
         <Link href="/import/review" className="btn-primary mt-2">
@@ -80,7 +92,7 @@ export function ImportTabs({ bookmarklet }: { bookmarklet: string }) {
                 </div>
               </li>
               <li>FANZA・DLsite・Amazon などの「購入履歴」「ライブラリ」ページを開く（ログインしたまま）</li>
-              <li>ブックマークをクリック → 推し棚が開いて商品リンクを一括で読み取ります</li>
+              <li>ブックマークをクリック → ページを自動でスクロール・次のページもたどって、取り込みエージェントが購入した商品だけを読み取ります</li>
             </ol>
             <p className="mt-2 text-xs text-ink-2">
               🔒 パスワードやログイン情報は推し棚に送られません。ページ上の商品リンクとテキストだけを、あなたのブラウザから直接渡します。

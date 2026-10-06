@@ -9,7 +9,8 @@ import { deleteAccount } from "@/lib/data/account";
 import { createUser, getUser, getUserByHandle, updateUser } from "@/lib/data/users";
 import { deleteItems, getItem, publishItems, setItemsVisibility, updateItem } from "@/lib/data/items";
 import { addWish, consumeQuota, follow, isFollowing, markAllRead, notify, removeWish, unfollow } from "@/lib/data/social";
-import { candidatesFromLinks, extractFromScreenshot, extractFromText, importCandidates, type ImportReport } from "@/lib/ai/agents/importer";
+import { extractFromScreenshot, extractFromText, importCandidates, MAX_ITEMS_PER_IMPORT, type ImportReport } from "@/lib/ai/agents/importer";
+import { readPurchaseHistory, type PageCard } from "@/lib/ai/agents/history-reader";
 import { generateBio, refreshTaste } from "@/lib/ai/agents/profiler";
 import { analyzeCompatibility, getCachedCompatibility, type Compatibility } from "@/lib/ai/agents/matcher";
 import { chatWithTwin, type ChatTurn } from "@/lib/ai/agents/twin";
@@ -177,7 +178,23 @@ export async function importPasteAction(_: unknown, form: FormData): Promise<Act
 
 const bulkSchema = z.object({
   page: z.string().max(2000),
-  links: z.array(z.object({ href: z.string().max(2000), text: z.string().max(500), img: z.string().max(2000).nullable().optional() })).max(3000),
+  title: z.string().max(300).optional(),
+  // Current bookmarklet: links with their surrounding card, section heading and image candidates.
+  cards: z
+    .array(
+      z.object({
+        href: z.string().max(2000),
+        text: z.string().max(500),
+        context: z.string().max(1000),
+        section: z.string().max(200),
+        imgs: z.array(z.object({ src: z.string().max(2000), alt: z.string().max(300) })).max(6),
+        page: z.number().int().min(1).max(20),
+      }),
+    )
+    .max(2000)
+    .optional(),
+  // Older bookmarklets saved before the card format.
+  links: z.array(z.object({ href: z.string().max(2000), text: z.string().max(500), img: z.string().max(2000).nullable().optional() })).max(3000).optional(),
   text: z.string().max(60_000).optional(),
 });
 
@@ -187,12 +204,16 @@ export async function importBulkAction(payload: z.infer<typeof bulkSchema>): Pro
   return attempt(async () => {
     const data = bulkSchema.parse(payload);
     await consumeQuota(uid, "import");
-    let candidates = candidatesFromLinks(data.links);
+    const cards: PageCard[] =
+      data.cards ?? (data.links ?? []).map((l) => ({ href: l.href, text: l.text, context: "", section: "", imgs: l.img ? [{ src: l.img, alt: "" }] : [], page: 1 }));
+    // The reading agent decides which links are purchases; code verifies URLs/images exist on the page.
+    const read = await readPurchaseHistory(cards, data.page, data.title ?? "", MAX_ITEMS_PER_IMPORT);
+    let candidates = read.products;
     if (candidates.length === 0 && data.text) candidates = await extractFromText(data.text);
-    if (candidates.length === 0) throw new Error("このページから商品が見つかりませんでした");
+    if (candidates.length === 0) throw new Error("このページから購入した商品が見つかりませんでした。購入履歴・ライブラリのページで実行してください");
     const report = await importCandidates(uid, candidates, "bulk", profile.defaultVisibility);
     revalidatePath("/import/review");
-    return report;
+    return { ...report, detected: read.products.length, excluded: read.excluded, recovered: read.recovered, notes: read.notes };
   });
 }
 
