@@ -15,6 +15,10 @@ export async function POST(req: NextRequest) {
     const decoded = await adminAuth.verifyIdToken(idToken);
     // Require a recent sign-in to mint a session.
     if (Date.now() / 1000 - decoded.auth_time > 5 * 60) return NextResponse.json({ error: "stale login" }, { status: 401 });
+    // Email/password accounts must verify their address before getting a session.
+    if (decoded.firebase.sign_in_provider === "password" && !decoded.email_verified) {
+      return NextResponse.json({ error: "email not verified" }, { status: 403 });
+    }
     const cookie = await adminAuth.createSessionCookie(idToken, { expiresIn: SESSION_MAX_AGE_MS });
     const res = NextResponse.json({ ok: true });
     res.cookies.set(SESSION_COOKIE, cookie, {
