@@ -1,26 +1,82 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --bg: #fbf7f2;
+  --surface: #ffffff;
+  --surface-2: #f4ede4;
+  --ink: #2a211c;
+  --ink-2: #6b5d53;
+  --line: #e7ddd1;
+  --accent: #e2567a;
+  --accent-ink: #ffffff;
+  --accent-soft: #fde6ec;
+  --wood: #c89b6d;
+  --ok: #2f8f5b;
+  --warn: #c7811a;
+  --danger: #c43d3d;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme="light"]) {
+    --bg: #17130f;
+    --surface: #211b16;
+    --surface-2: #2b241e;
+    --ink: #f3ebe3;
+    --ink-2: #b4a596;
+    --line: #3a3029;
+    --accent: #f27596;
+    --accent-ink: #1b1210;
+    --accent-soft: #3b2129;
+    --wood: #8a6440;
+    --ok: #5cc48a;
+    --warn: #e6a64b;
+    --danger: #ef6b6b;
   }
 }
 
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-wood: var(--wood);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --font-sans: "Noto Sans JP", system-ui, sans-serif;
+  --font-display: "Zen Maru Gothic", "Noto Sans JP", sans-serif;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.shelf-row {
+  background-image: linear-gradient(to top, var(--wood) 0, var(--wood) 6px, transparent 6px);
+  background-size: 100% 100%;
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-sm font-bold transition disabled:opacity-50 disabled:cursor-not-allowed;
+}
+@utility btn-primary {
+  @apply btn bg-accent text-accent-ink hover:brightness-110;
+}
+@utility btn-ghost {
+  @apply btn border border-line bg-surface text-ink hover:bg-surface-2;
+}
+@utility card {
+  @apply rounded-2xl border border-line bg-surface;
+}
+@utility input {
+  @apply w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-accent;
+}
+@utility chip {
+  @apply inline-flex items-center rounded-full bg-surface-2 px-2 py-0.5 text-xs text-ink-2;
 }

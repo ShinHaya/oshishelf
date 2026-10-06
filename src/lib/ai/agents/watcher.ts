@@ -1,0 +1,124 @@
+import "server-only";
+import { FunctionTool, LlmAgent } from "@google/adk";
+import { z } from "zod";
+import { adkModel, runAgent } from "../adk";
+import { genai, LITE_MODEL, MODEL } from "../gemini";
+import { db } from "../../firebase-admin";
+import { fetchProductMeta } from "../../product-meta";
+import { listNotifications, listWishes, notify, updateWish } from "../../data/social";
+import { getUser } from "../../data/users";
+import { shopSearchUrl } from "../../shops";
+
+const MAX_NOTIFICATIONS_PER_RUN = 3;
+const MAX_SEARCHES_PER_RUN = 2;
+
+/** Grounded Google Search for recent releases; returns plain titles (links are built as shop searches). */
+async function searchNewReleases(keyword: string) {
+  const res = await genai.models.generateContent({
+    model: MODEL,
+    contents: `「${keyword}」に関連する、直近1か月以内に発売・発売決定した書籍・マンガ・ゲーム・映像作品を最大3件調べてください。
+各行に「タイトル | 発売日 | 一言説明」の形式で書き、該当がなければ「なし」とだけ書いてください。成人向け作品は除外してください。`,
+    config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+  });
+  const text = res.text ?? "";
+  const releases = text
+    .split("\n")
+    .map((l) => l.replace(/^[-*・\d.\s]+/, "").split("|").map((s) => s.trim()))
+    .filter((p) => p.length >= 2 && p[0] && p[0] !== "なし")
+    .slice(0, 3)
+    .map(([title, date, note]) => ({ title, date, note: note ?? "" }));
+  return { keyword, releases };
+}
+
+function buildAgent(uid: string, tasteTags: string[]) {
+  let notified = 0;
+  let searches = 0;
+  return new LlmAgent({
+    name: "watcher_agent",
+    model: adkModel(LITE_MODEL),
+    instruction: `あなたは購入履歴SNS「推し棚」のウォッチャーエージェントです。ユーザーの代わりに定期巡回し、本当に役立つ情報だけを通知します。
+
+手順:
+1. list_watched_wishes で「ほしい」リストを取得し、各商品を check_price で確認する
+2. 価格が前回より5%以上下がった商品があれば notify_user で通知する（title例: 「○○が値下がりしました」）
+3. ユーザーの好きなタグ（${tasteTags.slice(0, 6).join("、") || "なし"}）から最大${MAX_SEARCHES_PER_RUN}個選び search_new_releases で新作を探し、見つかったら notify_user で知らせる
+4. 通知前に get_recent_notifications で同じ内容を最近通知していないか確認し、重複は送らない
+
+通知は1回の巡回で最大${MAX_NOTIFICATIONS_PER_RUN}件。何もなければ通知しなくてよい。最後に実施内容を1〜2文で要約してください。`,
+    tools: [
+      new FunctionTool({
+        name: "list_watched_wishes",
+        description: "ウォッチ中の「ほしい」商品の一覧（前回価格つき）",
+        execute: async () => ({
+          wishes: (await listWishes(uid)).filter((w) => w.watch).slice(0, 15).map((w) => ({ itemId: w.itemId, title: w.title, shop: w.shopLabel, lastPrice: w.lastPrice })),
+        }),
+      }),
+      new FunctionTool({
+        name: "check_price",
+        description: "ほしい商品の商品ページを確認し、現在価格を取得して記録する",
+        parameters: z.object({ itemId: z.string() }),
+        execute: async ({ itemId }) => {
+          const wish = (await listWishes(uid)).find((w) => w.itemId === itemId);
+          if (!wish) return { error: "ウォッチ中の商品ではありません" };
+          try {
+            const meta = await fetchProductMeta(wish.url);
+            await updateWish(uid, itemId, { lastCheckedAt: Date.now(), ...(meta.price ? { lastPrice: meta.price } : {}) });
+            return { itemId, title: wish.title, previousPrice: wish.lastPrice, currentPrice: meta.price, url: wish.url };
+          } catch {
+            return { itemId, error: "商品ページを取得できませんでした" };
+          }
+        },
+      }),
+      new FunctionTool({
+        name: "search_new_releases",
+        description: "キーワード（作家・シリーズ・ジャンル）に関する最近の新作をGoogle検索で調べる",
+        parameters: z.object({ keyword: z.string() }),
+        execute: async ({ keyword }) => {
+          if (searches >= MAX_SEARCHES_PER_RUN) return { error: "今回の巡回の検索上限に達しました" };
+          searches++;
+          return searchNewReleases(keyword);
+        },
+      }),
+      new FunctionTool({
+        name: "get_recent_notifications",
+        description: "最近ユーザーに送った通知のタイトル一覧（重複防止用）",
+        execute: async () => ({ titles: (await listNotifications(uid, 30)).map((n) => n.title) }),
+      }),
+      new FunctionTool({
+        name: "notify_user",
+        description: "ユーザーに通知を送る。値下がりは itemId を、新作は releaseTitle を指定する",
+        parameters: z.object({
+          kind: z.enum(["price_drop", "new_release"]),
+          title: z.string().max(60),
+          body: z.string().max(200),
+          itemId: z.string().optional(),
+          releaseTitle: z.string().optional(),
+        }),
+        execute: async ({ kind, title, body, itemId, releaseTitle }) => {
+          if (notified >= MAX_NOTIFICATIONS_PER_RUN) return { error: "今回の通知上限に達しました" };
+          let url: string | null = null;
+          if (itemId) url = (await listWishes(uid)).find((w) => w.itemId === itemId)?.url ?? null;
+          else if (releaseTitle) url = shopSearchUrl(undefined, releaseTitle).url;
+          await notify(uid, { kind, title, body, url });
+          notified++;
+          return { ok: true };
+        },
+      }),
+    ],
+  });
+}
+
+/** One autonomous patrol for a user; every run is recorded in `agentRuns` for auditability. */
+export async function runWatcherFor(uid: string) {
+  const user = await getUser(uid);
+  if (!user) return null;
+  const started = Date.now();
+  try {
+    const { text, steps } = await runAgent(buildAgent(uid, user.tasteTags), uid, "巡回を開始してください。");
+    await db.collection("agentRuns").add({ agent: "watcher", uid, ok: true, summary: text.slice(0, 500), steps, startedAt: started, finishedAt: Date.now() });
+    return { summary: text, steps };
+  } catch (e) {
+    await db.collection("agentRuns").add({ agent: "watcher", uid, ok: false, error: String(e).slice(0, 500), startedAt: started, finishedAt: Date.now() });
+    throw e;
+  }
+}
