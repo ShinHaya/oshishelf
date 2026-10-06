@@ -100,7 +100,7 @@ export function ImportTabs({ bookmarklet }: { bookmarklet: string }) {
           </section>
           <section>
             <h2 className="font-display font-bold">方法B：ページのテキストを貼り付け</h2>
-            <p className="mt-1 text-sm text-ink-2">購入履歴ページで「すべて選択（⌘A / Ctrl+A）→ コピー」して貼り付けてください。AIが商品名を抽出します。</p>
+            <p className="mt-1 text-sm text-ink-2">購入履歴ページで「すべて選択（⌘A / Ctrl+A）→ コピー」して貼り付けてください。AIが商品名を抽出します。成人向けショップの購入履歴は、方法Aのブックマークレットを使ってください。</p>
             <form action={pasteAction} className="mt-2 space-y-2">
               <textarea name="text" className="input min-h-32" placeholder="ここに貼り付け" maxLength={60000} />
               <button className="btn-primary" disabled={pastePending}>
@@ -115,6 +115,7 @@ export function ImportTabs({ bookmarklet }: { bookmarklet: string }) {
       {tab === "screenshot" && (
         <form action={shotAction} className="space-y-3">
           <p className="text-sm text-ink-2">購入履歴画面のスクリーンショット（最大5枚）から、Geminiが商品名を読み取ります。氏名・住所などは抽出しません。</p>
+          <p className="text-xs text-warn">⚠️ 成人向けショップ（FANZA・DLsite など）の画面には使わず、ブックマークレットで取り込んでください。ブックマークレットなら作品名や画像をAIに送らずに取り込めます。</p>
           <input type="file" name="images" accept="image/png,image/jpeg,image/webp" multiple required className="block text-sm" />
           <button className="btn-primary" disabled={shotPending}>
             {shotPending ? "AIが読み取り中…" : "読み取って取り込む"}

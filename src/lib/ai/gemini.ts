@@ -38,6 +38,12 @@ export async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<
   }
 }
 
+export class AiEmptyResponseError extends Error {
+  constructor(readonly reason: string) {
+    super(`AIが応答を返しませんでした (${reason})`);
+  }
+}
+
 /** Structured-output call: the model must answer with JSON matching `schema`. */
 export async function generateJson<T>(opts: {
   system: string;
@@ -58,7 +64,12 @@ export async function generateJson<T>(opts: {
     },
   }));
   const text = res.text;
-  if (!text) throw new Error(`AIが応答を返しませんでした (${res.candidates?.[0]?.finishReason ?? "unknown"})`);
+  if (!text) {
+    // Distinguish an input rejected by safety filters (promptFeedback) from an empty / cut-off answer.
+    const reason = res.promptFeedback?.blockReason ?? res.candidates?.[0]?.finishReason ?? "unknown";
+    console.error("generateJson: empty response", { reason, message: res.promptFeedback?.blockReasonMessage });
+    throw new AiEmptyResponseError(reason);
+  }
   return JSON.parse(text) as T;
 }
 

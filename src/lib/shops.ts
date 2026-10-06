@@ -30,9 +30,16 @@ function dmmBookParts(u: URL): { series: string; cid: string } | null {
   return { series: m[1], cid: m[2].toLowerCase() };
 }
 
-/** Content id for FANZA/DMM pages: book path segment, else a `cid=` in the path (video, doujin…). */
+/** New FANZA/DMM video site: /{floor}/content/?id={contentId} (e.g. /av/content/?id=abc00123). */
+function dmmVideoId(u: URL): string | null {
+  if (!u.hostname.startsWith("video.")) return null;
+  return /^\/[a-z]+\/content\/?$/.test(u.pathname) ? (u.searchParams.get("id")?.toLowerCase() ?? null) : null;
+}
+
+/** Content id for FANZA/DMM pages: book path segment, new video site id, else a `cid=` in the path. */
 function dmmContentId(u: URL): string | null {
   if (u.hostname.startsWith("book.")) return dmmBookParts(u)?.cid ?? null;
+  if (u.hostname.startsWith("video.")) return dmmVideoId(u);
   return u.pathname.match(/cid=([a-z0-9_]+)/i)?.[1] ?? u.searchParams.get("cid");
 }
 
@@ -49,7 +56,9 @@ export function detectShop(rawUrl: string): ShopInfo {
 
   if (h.endsWith("dmm.co.jp")) {
     const cid = dmmContentId(u);
-    const categoryHint: Category | null = h.startsWith("book.") || path.includes("/comic")
+    const categoryHint: Category | null = h.startsWith("video.")
+      ? "video"
+      : h.startsWith("book.") || path.includes("/comic")
       ? "comic"
       : path.includes("/doujin")
         ? "comic"
@@ -115,6 +124,7 @@ export function looksLikeProductUrl(rawUrl: string): boolean {
     const p = u.pathname;
     if (h.endsWith("dmm.co.jp") || h.endsWith("dmm.com")) {
       if (h.startsWith("book.")) return dmmBookParts(u) !== null;
+      if (h.startsWith("video.")) return dmmVideoId(u) !== null;
       return /cid=/.test(p) || /\/detail\//.test(p);
     }
     if (h.endsWith("dlsite.com")) return /product_id\//.test(p);
@@ -140,6 +150,8 @@ export function canonicalizeUrl(rawUrl: string): string {
   // Collapse book sub-pages (e.g. /tachiyomi/?cid=…) onto the product page so they merge with it.
   const book = dmmBookParts(u);
   if (book) return `https://${u.hostname}/product/${book.series}/${book.cid}/`;
+  const videoId = dmmVideoId(u);
+  if (videoId) return `https://${u.hostname}${u.pathname}?id=${videoId}`;
   for (const key of [...u.searchParams.keys()]) {
     if (/^(utm_|ref|tag|af_id|ch|ch_id|i3_|_encoding|psc|th|qid|sr|keywords|crid|sprefix|dib)/i.test(key)) u.searchParams.delete(key);
   }
