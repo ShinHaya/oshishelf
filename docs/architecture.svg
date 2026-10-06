@@ -62,7 +62,7 @@
   <!-- Cloud Run -->
   <rect x="414" y="172" width="640" height="560" rx="16" class="run"/>
   <text x="436" y="206" class="h">Cloud Run — Next.js 16（App Router / Server Actions）</text>
-  <text x="436" y="230" class="s">専用サービスアカウント（最小権限） / httpOnly セッションCookie / ユーザー別AI利用上限</text>
+  <text x="436" y="230" class="s">oshi-dana.com（ドメインマッピング・Google管理証明書） / 最小権限SA / ユーザー別AI利用上限</text>
 
   <!-- pipeline -->
   <rect x="436" y="250" width="596" height="132" rx="12" class="pipe"/>

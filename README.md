@@ -8,7 +8,7 @@ FANZA・DLsite・Amazon・Steam など、どこで買った作品も「棚」に
 
 第5回 Agentic AI Hackathon with Google Cloud 応募作品。
 
-- デプロイ URL: https://oshishelf-948562731.asia-northeast1.run.app
+- デプロイ URL: https://oshi-dana.com
 - ログイン: Google アカウント、またはメールアドレス
 - 審査用アカウント: ログイン画面の「デモアカウントでログイン」ボタン（`demo@oshishelf.app` / `oshishelf-demo-2026`）
 
@@ -106,8 +106,10 @@ pnpm dev
 
 ## デプロイ
 
+本番は Cloud Run のドメインマッピングで `oshi-dana.com`（と `www`）を割り当てています。DNS は Cloudflare（レジストラ）で、プロキシを使わず Cloud Run 指定の A / AAAA / CNAME を登録しています。`www` と `*.run.app` へのアクセスは `src/proxy.ts` で `APP_ORIGIN` に 301 転送します（`/api` を除く）。
+
 ```bash
 gcloud run deploy oshishelf --source . --region=asia-northeast1 \
   --service-account=oshishelf-run@<PROJECT>.iam.gserviceaccount.com --allow-unauthenticated \
-  --set-env-vars=GOOGLE_CLOUD_PROJECT=<PROJECT>,APP_ORIGIN=<SERVICE_URL>,SCHEDULER_SA_EMAIL=oshishelf-scheduler@<PROJECT>.iam.gserviceaccount.com
+  --set-env-vars=GOOGLE_CLOUD_PROJECT=<PROJECT>,APP_ORIGIN=https://oshi-dana.com,CRON_AUDIENCE=<RUN_APP_URL>/api/cron/watch,SCHEDULER_SA_EMAIL=oshishelf-scheduler@<PROJECT>.iam.gserviceaccount.com
 ```

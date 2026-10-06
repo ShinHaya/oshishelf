@@ -6,7 +6,8 @@ import { SESSION_COOKIE, SESSION_MAX_AGE_MS } from "@/lib/session";
 export async function POST(req: NextRequest) {
   // Same-origin only (CSRF protection for the cookie-setting endpoint).
   const origin = req.headers.get("origin");
-  if (origin && new URL(origin).host !== req.headers.get("host")) {
+  const allowed = new Set([req.headers.get("host"), process.env.APP_ORIGIN && new URL(process.env.APP_ORIGIN).host]);
+  if (origin && !allowed.has(new URL(origin).host)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const { idToken } = (await req.json().catch(() => ({}))) as { idToken?: string };

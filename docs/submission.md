@@ -3,7 +3,7 @@
 ## 提出フォームに登録するもの
 
 - [ ] **GitHub リポジトリ**: https://github.com/ShinHaya/oshishelf （ダッシュボードから GitHub App で連携）
-- [ ] **デプロイ URL**: https://oshishelf-948562731.asia-northeast1.run.app
+- [ ] **デプロイ URL**: https://oshi-dana.com
   - 審査用アカウント: ログイン画面の「デモアカウントでログイン」ボタン（`demo@oshishelf.app` / `oshishelf-demo-2026`）
 - [ ] **プロジェクト説明文**: 下記
 - [ ] **システムアーキテクチャ図の画像**: `docs/architecture.png`

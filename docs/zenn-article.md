@@ -9,7 +9,7 @@ published: false
 :::message
 本記事は「第5回 Agentic AI Hackathon with Google Cloud」の応募作品の紹介です。
 
-- アプリ: https://oshishelf-948562731.asia-northeast1.run.app （ログイン画面の「デモアカウントでログイン」で全機能を試せます）
+- アプリ: https://oshi-dana.com （ログイン画面の「デモアカウントでログイン」で全機能を試せます）
 - GitHub: https://github.com/ShinHaya/oshishelf
 - デモ動画: （YouTube URL を記入）
 :::

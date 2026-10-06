@@ -11,7 +11,8 @@ const oauth = new OAuth2Client();
 async function authorized(req: NextRequest): Promise<boolean> {
   const token = req.headers.get("authorization")?.replace(/^Bearer /, "");
   const expectedEmail = process.env.SCHEDULER_SA_EMAIL;
-  const audience = `${process.env.APP_ORIGIN}/api/cron/watch`;
+  // The scheduler calls the run.app URL directly, so its audience can differ from APP_ORIGIN.
+  const audience = process.env.CRON_AUDIENCE ?? `${process.env.APP_ORIGIN}/api/cron/watch`;
   if (!token || !expectedEmail) return false;
   try {
     const ticket = await oauth.verifyIdToken({ idToken: token, audience });
