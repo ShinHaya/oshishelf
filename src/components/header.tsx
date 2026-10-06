@@ -37,19 +37,22 @@ export async function Header() {
               </div>
             </>
           ) : (
-            <div className="ml-auto flex gap-2">
-              <Link href="/login" className="btn-ghost">
-                ログイン
-              </Link>
-              <Link href="/login?mode=signup" className="btn-primary">
-                はじめる
-              </Link>
-            </div>
+            <>
+              <NavTabs handle={null} />
+              <div className="ml-auto flex gap-2">
+                <Link href="/login" className="btn-ghost">
+                  ログイン
+                </Link>
+                <Link href="/login?mode=signup" className="btn-primary">
+                  はじめる
+                </Link>
+              </div>
+            </>
           )}
         </div>
       </header>
       {/* Outside <header>: its backdrop-filter would become the containing block for position:fixed. */}
-      {profile && <NavBottomBar handle={profile.handle} />}
+      <NavBottomBar handle={profile?.handle ?? null} />
     </>
   );
 }

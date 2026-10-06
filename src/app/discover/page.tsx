@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { requireProfile } from "@/lib/session";
+import { getViewer } from "@/lib/session";
 import { recommendUsers } from "@/lib/ai/agents/matcher";
 import { listFollowing } from "@/lib/data/social";
 import { listRecentUsers } from "@/lib/data/users";
@@ -10,7 +10,8 @@ import type { UserProfile } from "@/lib/types";
 
 export const metadata: Metadata = { title: "見つける" };
 
-function UserRow({ profile, similarity, following }: { profile: UserProfile; similarity?: number; following: boolean }) {
+/** `following` is null for guests, who get a login link instead of a follow button. */
+function UserRow({ profile, similarity, following }: { profile: UserProfile; similarity?: number; following: boolean | null }) {
   return (
     <li className="card flex items-center gap-3 p-4">
       <Link href={`/u/${profile.handle}`}>
@@ -35,13 +36,21 @@ function UserRow({ profile, similarity, following }: { profile: UserProfile; sim
           <p className="text-[10px] text-ink-2">嗜好の近さ</p>
         </div>
       )}
-      <FollowButton targetUid={profile.uid} initial={following} />
+      {following === null ? (
+        <Link href="/login" className="btn-primary">
+          フォローする
+        </Link>
+      ) : (
+        <FollowButton targetUid={profile.uid} initial={following} />
+      )}
     </li>
   );
 }
 
 export default async function DiscoverPage() {
-  const { uid } = await requireProfile();
+  const viewer = await getViewer();
+  const uid = viewer?.profile?.uid ?? null;
+  if (!uid) return <GuestDiscover />;
   const [recs, recent, following] = await Promise.all([recommendUsers(uid, 10).catch(() => []), listRecentUsers(20), listFollowing(uid)]);
   const followingSet = new Set(following);
   const recIds = new Set(recs.map((r) => r.profile.uid));
@@ -69,6 +78,36 @@ export default async function DiscoverPage() {
           </ul>
         </section>
       )}
+    </div>
+  );
+}
+
+/** Logged-out view: no taste vector to match on, so list recent shelves and invite sign-up. */
+async function GuestDiscover() {
+  const recent = (await listRecentUsers(20)).filter((u) => u.itemCount > 0);
+  return (
+    <div className="space-y-6">
+      <section className="card p-5 text-center">
+        <h1 className="font-display text-2xl font-bold">趣味が合いそうな人を見つける</h1>
+        <p className="mt-1 text-sm text-ink-2">棚をつくると、作品・タグから作った嗜好ベクトルをAIが比較して、あなたと趣味が近い人をおすすめします。</p>
+        <div className="mt-4 flex justify-center gap-2">
+          <Link href="/login?mode=signup" className="btn-primary">
+            棚をつくる
+          </Link>
+          <Link href="/login" className="btn-ghost">
+            ログイン
+          </Link>
+        </div>
+      </section>
+      <section>
+        <h2 className="font-display text-lg font-bold">新しく棚をつくった人</h2>
+        <ul className="mt-3 space-y-2">
+          {recent.length === 0 && <li className="card p-6 text-center text-sm text-ink-2">まだ棚を公開している人がいません。</li>}
+          {recent.map((p) => (
+            <UserRow key={p.uid} profile={p} following={null} />
+          ))}
+        </ul>
+      </section>
     </div>
   );
 }
