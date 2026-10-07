@@ -2,9 +2,10 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { deleteItemsAction, publishDraftsAction, updateItemsVisibilityAction, updateItemVisibilityAction } from "@/app/actions";
+import { deleteItemsAction, fixItemTitleAction, publishDraftsAction, updateItemsVisibilityAction, updateItemVisibilityAction } from "@/app/actions";
 import { ReviewEditor } from "./review";
 import { CATEGORY_LABELS, VISIBILITY_LABELS, type Item, type Visibility } from "@/lib/types";
+import { lacksProductInfo } from "@/lib/shops";
 
 const GUARD_STYLE = {
   ok: "",
@@ -129,6 +130,7 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
               {item.guard && item.guard.level !== "ok" && (
                 <p className={`mt-1.5 text-xs ${item.guard.level === "block" ? "text-danger" : "text-warn"}`}>🛡️ {item.guard.reasons.join(" / ")}</p>
               )}
+              {lacksProductInfo(item) && <TitleFixForm itemId={item.id} />}
               {mode === "published" && <ReviewEditor itemId={item.id} review={item.review} />}
             </div>
             <select
@@ -147,5 +149,39 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
         ))}
       </ul>
     </div>
+  );
+}
+
+/**
+ * Title entry for an item whose product page could not be read (e.g. a library link that showed a
+ * sign-in screen). Until it is saved the item cannot be published and stays hidden from others.
+ */
+function TitleFixForm({ itemId }: { itemId: string }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [title, setTitle] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const save = () =>
+    start(async () => {
+      const r = await fixItemTitleAction(itemId, title);
+      if (!r.ok) return setError(r.error);
+      setError(null);
+      router.refresh();
+    });
+  return (
+    <form
+      className="mt-2 flex flex-wrap items-center gap-1.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+    >
+      <p className="w-full text-xs text-warn">商品情報を取得できませんでした。商品名を入力するまで、ほかの人には表示されません</p>
+      <input className="input !w-auto min-w-0 flex-1 !py-1 text-xs" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="商品名を入力" aria-label="商品名" maxLength={200} />
+      <button type="submit" className="btn-ghost !px-3 !py-1 !text-xs" disabled={pending || !title.trim()}>
+        {pending ? "保存中…" : "保存"}
+      </button>
+      {error && <p className="w-full text-xs text-danger">{error}</p>}
+    </form>
   );
 }

@@ -1,7 +1,7 @@
 import "server-only";
 import { Type, type Schema } from "@google/genai";
 import { generateJson, LITE_MODEL } from "../gemini";
-import { canonicalizeUrl, detectShop, looksLikeProductUrl, shopSearchUrl } from "../../shops";
+import { canonicalizeUrl, detectShop, looksLikeProductUrl, publicProductUrl, shopSearchUrl } from "../../shops";
 import { fetchProductMeta, readProductWithGemini } from "../../product-meta";
 import { createDrafts, type NewItem } from "../../data/items";
 import type { Category, ImportCandidate, ImportSource, Visibility } from "../../types";
@@ -139,15 +139,20 @@ export interface ImportReport {
 export async function importCandidates(uid: string, candidates: ImportCandidate[], source: ImportSource, defaultVisibility: Visibility): Promise<ImportReport> {
   const list = candidates.slice(0, MAX_ITEMS_PER_IMPORT);
   const resolved = await mapLimit(list, 6, async (c) => {
-    const url = c.urlIsSearch ? c.url : canonicalizeUrl(c.url);
+    // Library / reader / order links need the buyer's login: use the public product page when the
+    // URL still carries the product id.
+    let url = c.urlIsSearch ? c.url : (publicProductUrl(c.url) ?? canonicalizeUrl(c.url));
     const info = detectShop(url);
+    let urlIsSearch = !!c.urlIsSearch;
     let { title, imageUrl = null, price = null } = c;
     let genres: string[] = [];
+    let loginWall = false;
     // Always read the product page: its official title / cover beat link text scraped from a
     // library page (which may be a label or carry badges), and R18 genres come from it too.
-    if (!c.urlIsSearch) {
+    if (!urlIsSearch) {
       try {
         const meta = await fetchProductMeta(url);
+        loginWall = !!meta.loginWall;
         // Official page title wins, unless it is generic (site name only) — then keep the card's title.
         const generic = !meta.title || meta.title.length < 2 || /^(amazon|amazon\.co\.jp|fanza|dmm|dlsite|楽天|rakuten|booth|steam)( |$)/i.test(meta.title);
         title = (!generic && meta.title) || title || "";
@@ -157,18 +162,25 @@ export async function importCandidates(uid: string, candidates: ImportCandidate[
       } catch {
         // keep what we have; shops often block bots
       }
-      if (!title) {
+      if (!title && !loginWall) {
         try {
           const meta = await readProductWithGemini(url);
+          loginWall = !!meta.loginWall;
           title = meta.title ?? "";
           price = price ?? meta.price;
         } catch {
           // fall through: guard will ask the user to check it
         }
       }
+      // A members-only page would send other people to their own login / purchase history.
+      // With a known title, link to the shop's search results instead.
+      if (loginWall && title) {
+        url = shopSearchUrl(info.shop, title).url;
+        urlIsSearch = true;
+      }
     }
-    const searchShop = c.urlIsSearch ? shopSearchUrl(c.shopHint, c.title).shop : null;
-    return { url, info, title: title || url, imageUrl, price, genres, searchShop, urlIsSearch: !!c.urlIsSearch };
+    const searchShop = urlIsSearch ? shopSearchUrl(c.urlIsSearch ? c.shopHint : info.shop, title).shop : null;
+    return { url, info, title: title || url, imageUrl, price, genres, searchShop, urlIsSearch };
   });
 
   const enriched = await enrich(resolved.map((r) => ({ title: r.title, shop: r.info.label, adultShop: r.info.adult })));

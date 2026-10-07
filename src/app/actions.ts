@@ -7,7 +7,7 @@ import { z } from "zod";
 import { getViewer, requireProfile, SESSION_COOKIE } from "@/lib/session";
 import { deleteAccount } from "@/lib/data/account";
 import { createUser, getUser, getUserByHandle, updateUser } from "@/lib/data/users";
-import { deleteItems, getItem, publishItems, setItemsVisibility, updateItem } from "@/lib/data/items";
+import { deleteItems, getItem, publishItems, setItemProductInfo, setItemsVisibility, updateItem } from "@/lib/data/items";
 import { deleteReview, setReaction, setReview } from "@/lib/data/reviews";
 import { addWish, consumeQuota, follow, isFollowing, markAllRead, notify, removeWish, unfollow } from "@/lib/data/social";
 import { extractFromScreenshot, extractFromText, importCandidates, MAX_ITEMS_PER_IMPORT, type ImportReport } from "@/lib/ai/agents/importer";
@@ -16,7 +16,8 @@ import { generateBio, refreshTaste } from "@/lib/ai/agents/profiler";
 import { analyzeCompatibility, getCachedCompatibility, type Compatibility } from "@/lib/ai/agents/matcher";
 import { chatWithTwin, type ChatTurn } from "@/lib/ai/agents/twin";
 import { runWatcherFor } from "@/lib/ai/agents/watcher";
-import { detectShop, looksLikeProductUrl } from "@/lib/shops";
+import { runPrivacyGuard } from "@/lib/ai/agents/guard";
+import { detectShop, isLoginWallTitle, lacksProductInfo, looksLikeProductUrl, publicProductUrl, shopSearchUrl } from "@/lib/shops";
 import type { AgentStep } from "@/lib/ai/adk";
 import { canSeeAdult, canSeeItem } from "@/lib/access";
 import type { AiBio, Item, ReviewReaction, Visibility } from "@/lib/types";
@@ -264,6 +265,31 @@ export async function updateItemVisibilityAction(id: string, v: Visibility): Pro
   const { uid } = await requireProfile();
   return attempt(async () => {
     await updateItem(uid, id, { visibility: visibility.parse(v) });
+    revalidatePath("/", "layout");
+  });
+}
+
+/**
+ * The owner enters the title of an item whose product page could not be read. The link becomes the
+ * public product page when the URL carries its id, else the shop's search results for the title —
+ * never the members-only page (library / order history) the import found.
+ */
+export async function fixItemTitleAction(id: string, rawTitle: string): Promise<ActionResult> {
+  const { uid } = await requireProfile();
+  return attempt(async () => {
+    const title = z.string().trim().min(1, "商品名を入力してください").max(200).parse(rawTitle);
+    const item = await getItem(z.string().min(1).parse(id));
+    if (!item || item.ownerUid !== uid) throw new Error("not found");
+    if (!lacksProductInfo(item)) throw new Error("この作品は商品情報を取得済みです");
+    const productUrl = item.urlIsSearch ? null : (publicProductUrl(item.url) ?? (!isLoginWallTitle(item.title) && looksLikeProductUrl(item.url) ? item.url : null));
+    if (productUrl) {
+      const info = detectShop(productUrl);
+      await setItemProductInfo(uid, item.id, { title, url: productUrl, urlIsSearch: false, shop: info.shop, shopLabel: info.label, productKey: info.productKey });
+    } else {
+      const s = shopSearchUrl(item.shop, title);
+      await setItemProductInfo(uid, item.id, { title, url: s.url, urlIsSearch: true, shop: s.shop, shopLabel: detectShop(s.url).label, productKey: `search:${title}` });
+    }
+    await runPrivacyGuard(uid, [item.id]);
     revalidatePath("/", "layout");
   });
 }

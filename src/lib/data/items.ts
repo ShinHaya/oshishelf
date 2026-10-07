@@ -2,6 +2,7 @@ import "server-only";
 import { FieldValue } from "firebase-admin/firestore";
 import { db } from "../firebase-admin";
 import { deleteReactionsForItems } from "./reviews";
+import { lacksProductInfo } from "../shops";
 import type { Category, GuardResult, ImportSource, Item, ItemStatus, Visibility } from "../types";
 
 export const itemsCol = () => db.collection("items");
@@ -121,7 +122,7 @@ export async function listFeed(ownerUids: string[], limit = 60): Promise<Item[]>
 
 export async function listRecentPublic(limit = 40): Promise<Item[]> {
   const snap = await itemsCol().where("status", "==", "published").where("visibility", "==", "public").orderBy("publishedAt", "desc").limit(limit * 2).get();
-  return snap.docs.map((d) => toItem(d.id, d.data())).filter((i) => !i.isAdult).slice(0, limit);
+  return snap.docs.map((d) => toItem(d.id, d.data())).filter((i) => !i.isAdult && !lacksProductInfo(i)).slice(0, limit);
 }
 
 export async function setGuard(results: { id: string; guard: GuardResult; isAdult?: boolean }[]) {
@@ -135,7 +136,8 @@ export async function setGuard(results: { id: string; guard: GuardResult; isAdul
 /** Publish the given drafts owned by `ownerUid`, with per-item visibility. */
 export async function publishItems(ownerUid: string, entries: { id: string; visibility: Visibility }[]) {
   const items = await getItems(entries.map((e) => e.id));
-  const owned = new Map(items.filter((i) => i.ownerUid === ownerUid && i.status === "draft").map((i) => [i.id, i]));
+  // Items without a real title would show a broken card whose link is a members-only page.
+  const owned = new Map(items.filter((i) => i.ownerUid === ownerUid && i.status === "draft" && !lacksProductInfo(i)).map((i) => [i.id, i]));
   const batch = db.batch();
   const now = Date.now();
   let n = 0;
@@ -170,6 +172,20 @@ export async function updateItem(ownerUid: string, id: string, patch: Partial<Pi
     const snap = await tx.get(ref);
     if (!snap.exists || snap.get("ownerUid") !== ownerUid) throw new Error("not found");
     tx.update(ref, patch);
+  });
+}
+
+/** Owner-entered title for an item whose product page could not be read, with its new shop link. */
+export async function setItemProductInfo(
+  ownerUid: string,
+  id: string,
+  patch: Pick<Item, "title" | "url" | "urlIsSearch" | "shop" | "shopLabel"> & { productKey: string | null },
+) {
+  const ref = itemsCol().doc(id);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists || snap.get("ownerUid") !== ownerUid) throw new Error("not found");
+    tx.update(ref, { ...patch, guard: null });
   });
 }
 
