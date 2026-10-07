@@ -17,7 +17,7 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
   const router = useRouter();
   const [pending, start] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "flagged">("all");
+  const [filter, setFilter] = useState<"all" | "flagged" | "unfetched">("all");
   // Pre-select everything the guard considers safe; flagged items must be opted in explicitly.
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(mode === "draft" ? items.filter((i) => (i.guard?.level ?? "ok") === "ok").map((i) => i.id) : []),
@@ -27,7 +27,16 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
   );
 
   const flaggedCount = items.filter((i) => i.guard && i.guard.level !== "ok").length;
-  const shown = useMemo(() => (filter === "flagged" ? items.filter((i) => i.guard && i.guard.level !== "ok") : items), [items, filter]);
+  const unfetchedCount = items.filter(lacksProductInfo).length;
+  const shown = useMemo(
+    () =>
+      filter === "flagged"
+        ? items.filter((i) => i.guard && i.guard.level !== "ok")
+        : filter === "unfetched"
+          ? items.filter(lacksProductInfo)
+          : items,
+    [items, filter],
+  );
 
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -83,8 +92,13 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
           全選択（{selected.size}/{items.length}）
         </label>
         {flaggedCount > 0 && (
-          <button type="button" className="chip !text-warn" onClick={() => setFilter(filter === "all" ? "flagged" : "all")}>
+          <button type="button" className="chip !text-warn" onClick={() => setFilter(filter === "flagged" ? "all" : "flagged")}>
             🛡️ 要確認 {flaggedCount} 件{filter === "flagged" ? "のみ表示中" : ""}
+          </button>
+        )}
+        {(unfetchedCount > 0 || filter === "unfetched") && (
+          <button type="button" className="chip !text-warn" onClick={() => setFilter(filter === "unfetched" ? "all" : "unfetched")}>
+            ⚠️ 情報未取得 {unfetchedCount} 件{filter === "unfetched" ? "のみ表示中" : ""}
           </button>
         )}
         <div className="flex items-center gap-1.5">
