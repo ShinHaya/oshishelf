@@ -1,6 +1,7 @@
 import "server-only";
 import { FieldValue, type DocumentReference } from "firebase-admin/firestore";
 import { adminAuth, db } from "../firebase-admin";
+import { deleteReactionsOfUser } from "./reviews";
 
 async function deleteRefs(refs: DocumentReference[]) {
   for (let i = 0; i < refs.length; i += 400) {
@@ -11,13 +12,14 @@ async function deleteRefs(refs: DocumentReference[]) {
 }
 
 /**
- * Permanently delete a user: shelf items, follows (adjusting the other side's counters), wishes,
+ * Permanently delete a user: shelf items, review reactions (given and received), follows (adjusting the other side's counters), wishes,
  * notifications, AI caches/logs, usage counters, handle, profile and the Firebase Auth account.
  */
 export async function deleteAccount(uid: string) {
   const userRef = db.collection("users").doc(uid);
   const handle = (await userRef.get()).get("handle") as string | undefined;
 
+  await deleteReactionsOfUser(uid);
   const items = await db.collection("items").where("ownerUid", "==", uid).select().get();
   await deleteRefs(items.docs.map((d) => d.ref));
 

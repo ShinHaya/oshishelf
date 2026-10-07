@@ -1,6 +1,7 @@
 import "server-only";
 import { FieldValue } from "firebase-admin/firestore";
 import { db } from "../firebase-admin";
+import { deleteReactionsForItems } from "./reviews";
 import type { Category, GuardResult, ImportSource, Item, ItemStatus, Visibility } from "../types";
 
 export const itemsCol = () => db.collection("items");
@@ -23,6 +24,9 @@ export function toItem(id: string, d: FirebaseFirestore.DocumentData): Item {
     status: d.status ?? "draft",
     guard: d.guard ?? null,
     note: d.note ?? "",
+    review: d.review
+      ? { rating: d.review.rating, text: d.review.text ?? "", helpful: d.review.helpful ?? 0, unhelpful: d.review.unhelpful ?? 0, updatedAt: d.review.updatedAt ?? 0 }
+      : null,
     source: d.source ?? "manual",
     clickCount: d.clickCount ?? 0,
     createdAt: d.createdAt ?? 0,
@@ -69,6 +73,7 @@ export async function createDrafts(ownerUid: string, items: NewItem[]): Promise<
       status: "draft" satisfies ItemStatus,
       guard: null,
       note: "",
+      review: null,
       clickCount: 0,
       createdAt: now,
       publishedAt: null,
@@ -155,6 +160,7 @@ export async function deleteItems(ownerUid: string, ids: string[]) {
   const publishedCount = owned.filter((i) => i.status === "published").length;
   if (publishedCount) batch.update(db.collection("users").doc(ownerUid), { itemCount: FieldValue.increment(-publishedCount) });
   await batch.commit();
+  await deleteReactionsForItems(owned.filter((i) => i.review).map((i) => i.id));
   return owned.length;
 }
 

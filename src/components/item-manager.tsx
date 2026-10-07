@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { deleteItemsAction, publishDraftsAction, updateItemsVisibilityAction, updateItemVisibilityAction } from "@/app/actions";
+import { ReviewEditor } from "./review";
 import { CATEGORY_LABELS, VISIBILITY_LABELS, type Item, type Visibility } from "@/lib/types";
 
 const GUARD_STYLE = {
@@ -128,6 +129,7 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
               {item.guard && item.guard.level !== "ok" && (
                 <p className={`mt-1.5 text-xs ${item.guard.level === "block" ? "text-danger" : "text-warn"}`}>🛡️ {item.guard.reasons.join(" / ")}</p>
               )}
+              {mode === "published" && <ReviewEditor itemId={item.id} review={item.review} />}
             </div>
             <select
               className="input !w-auto self-start !py-1 text-xs"

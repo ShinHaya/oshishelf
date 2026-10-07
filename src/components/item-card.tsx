@@ -1,8 +1,9 @@
 import Link from "next/link";
-import type { Item, UserProfile } from "@/lib/types";
+import type { Item, ReviewReaction, UserProfile } from "@/lib/types";
 import { CATEGORY_LABELS } from "@/lib/types";
 import { Avatar } from "./avatar";
 import { WishButton } from "./wish-button";
+import { ReviewView } from "./review";
 
 function hueOf(s: string) {
   let h = 0;
@@ -31,6 +32,8 @@ export function ItemCard({
   wished,
   canWish,
   hideAdult,
+  reaction = null,
+  reactAs = "guest",
 }: {
   item: Item;
   owner?: UserProfile;
@@ -38,6 +41,10 @@ export function ItemCard({
   canWish?: boolean;
   /** Viewer has not opted in to R18: render a locked placeholder instead. */
   hideAdult?: boolean;
+  /** The viewer's current reaction to this item's review. */
+  reaction?: ReviewReaction | null;
+  /** How the viewer may react to the review: signed-in "viewer", "guest" (login link) or the "owner". */
+  reactAs?: "viewer" | "guest" | "owner";
 }) {
   if (item.isAdult && hideAdult) {
     return (
@@ -70,6 +77,7 @@ export function ItemCard({
             </span>
           ))}
         </div>
+        {item.review && <ReviewView itemId={item.id} review={item.review} mine={reaction} reactAs={reactAs} />}
         <div className="mt-auto flex items-center gap-2 pt-1">
           {owner && (
             <Link href={`/u/${owner.handle}`} className="flex min-w-0 items-center gap-1.5 text-xs text-ink-2 hover:text-ink">

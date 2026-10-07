@@ -5,9 +5,10 @@ import { getViewer } from "@/lib/session";
 import { getUserByHandle } from "@/lib/data/users";
 import { listShelf } from "@/lib/data/items";
 import { isFollowing, wishedIds } from "@/lib/data/social";
+import { myReactions } from "@/lib/data/reviews";
 import { adultAiAllowed, canSeeAdult, canSeeItem } from "@/lib/access";
 import { getCachedCompatibility } from "@/lib/ai/agents/matcher";
-import { CATEGORY_LABELS, type Category, type Item } from "@/lib/types";
+import { CATEGORY_LABELS, type Category, type Item, type ReviewReaction } from "@/lib/types";
 import { Avatar } from "@/components/avatar";
 import { FollowButton } from "@/components/follow-button";
 import { ItemCard } from "@/components/item-card";
@@ -41,6 +42,8 @@ export default async function ProfilePage(props: PageProps<"/u/[handle]">) {
 
   // Bio A (reflects R18 genres) for viewers who opted in, while the owner allows it; otherwise bio B.
   const bio = owner.aiBio ? (owner.aiBio.adult && adultAiAllowed(owner, me) ? owner.aiBio.adult : owner.aiBio) : null;
+
+  const reactions = me && !isMe ? await myReactions(me.uid, items.filter((i) => i.review?.text).map((i) => i.id)) : new Map<string, ReviewReaction>();
 
   const groups = new Map<Category, Item[]>();
   for (const it of items) groups.set(it.category, [...(groups.get(it.category) ?? []), it]);
@@ -123,7 +126,14 @@ export default async function ProfilePage(props: PageProps<"/u/[handle]">) {
             </h2>
             <div className="shelf-row grid grid-cols-2 gap-3 pb-4 sm:grid-cols-4 lg:grid-cols-5">
               {list.map((item) => (
-                <ItemCard key={item.id} item={item} wished={wished.has(item.id)} canWish={!!me && !isMe} />
+                <ItemCard
+                  key={item.id}
+                  item={item}
+                  wished={wished.has(item.id)}
+                  canWish={!!me && !isMe}
+                  reaction={reactions.get(item.id)}
+                  reactAs={isMe ? "owner" : me ? "viewer" : "guest"}
+                />
               ))}
             </div>
           </div>

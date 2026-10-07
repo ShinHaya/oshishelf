@@ -8,6 +8,7 @@ import { getViewer, requireProfile, SESSION_COOKIE } from "@/lib/session";
 import { deleteAccount } from "@/lib/data/account";
 import { createUser, getUser, getUserByHandle, updateUser } from "@/lib/data/users";
 import { deleteItems, getItem, publishItems, setItemsVisibility, updateItem } from "@/lib/data/items";
+import { deleteReview, setReaction, setReview } from "@/lib/data/reviews";
 import { addWish, consumeQuota, follow, isFollowing, markAllRead, notify, removeWish, unfollow } from "@/lib/data/social";
 import { extractFromScreenshot, extractFromText, importCandidates, MAX_ITEMS_PER_IMPORT, type ImportReport } from "@/lib/ai/agents/importer";
 import { readPurchaseHistory, type PageCard } from "@/lib/ai/agents/history-reader";
@@ -17,7 +18,8 @@ import { chatWithTwin, type ChatTurn } from "@/lib/ai/agents/twin";
 import { runWatcherFor } from "@/lib/ai/agents/watcher";
 import { detectShop, looksLikeProductUrl } from "@/lib/shops";
 import type { AgentStep } from "@/lib/ai/adk";
-import type { AiBio, Item, Visibility } from "@/lib/types";
+import { canSeeAdult, canSeeItem } from "@/lib/access";
+import type { AiBio, Item, ReviewReaction, Visibility } from "@/lib/types";
 
 export type ActionResult<T = void> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -263,6 +265,44 @@ export async function updateItemVisibilityAction(id: string, v: Visibility): Pro
   return attempt(async () => {
     await updateItem(uid, id, { visibility: visibility.parse(v) });
     revalidatePath("/", "layout");
+  });
+}
+
+// ---------- reviews ----------
+
+export async function saveReviewAction(itemId: string, input: { rating: number; text: string }): Promise<ActionResult> {
+  const { uid } = await requireProfile();
+  return attempt(async () => {
+    const data = z
+      .object({ rating: z.number().int().min(1, "評価を選んでください").max(5), text: z.string().trim().max(1000, "口コミは1000文字までです") })
+      .parse(input);
+    await setReview(uid, z.string().min(1).parse(itemId), data);
+    revalidatePath("/", "layout");
+  });
+}
+
+export async function deleteReviewAction(itemId: string): Promise<ActionResult> {
+  const { uid } = await requireProfile();
+  return attempt(async () => {
+    await deleteReview(uid, z.string().min(1).parse(itemId));
+    revalidatePath("/", "layout");
+  });
+}
+
+/** React to another user's review; `null` withdraws the reaction. Same visibility rules as viewing the item. */
+export async function reactToReviewAction(
+  itemId: string,
+  value: ReviewReaction | null,
+): Promise<ActionResult<{ helpful: number; unhelpful: number; mine: ReviewReaction | null }>> {
+  const { uid, profile } = await requireProfile();
+  return attempt(async () => {
+    const v = z.enum(["helpful", "unhelpful"]).nullable().parse(value);
+    const item = await getItem(z.string().min(1).parse(itemId));
+    const following = item ? await isFollowing(uid, item.ownerUid) : false;
+    if (!item || !canSeeItem(item, { viewerUid: uid, viewerProfile: profile, following }) || (item.isAdult && !canSeeAdult(profile))) {
+      throw new Error("口コミが見つかりません");
+    }
+    return setReaction(uid, item.id, v);
   });
 }
 

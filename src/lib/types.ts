@@ -27,6 +27,18 @@ export interface GuardResult {
   checkedAt: number;
 }
 
+export type ReviewReaction = "helpful" | "unhelpful";
+
+/** The owner's own rating (1–5) and review of an item on their shelf. */
+export interface ItemReview {
+  rating: number;
+  text: string;
+  /** Counts of other users' reactions to the review text. */
+  helpful: number;
+  unhelpful: number;
+  updatedAt: number;
+}
+
 export interface Item {
   id: string;
   ownerUid: string;
@@ -45,6 +57,7 @@ export interface Item {
   status: ItemStatus;
   guard: GuardResult | null;
   note: string;
+  review: ItemReview | null;
   source: ImportSource;
   clickCount: number;
   createdAt: number;
