@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireProfile } from "@/lib/session";
-import { listWishes } from "@/lib/data/social";
+import { listVisibleWishes } from "@/lib/data/social";
 import { WishButton } from "@/components/wish-button";
 
 export const metadata: Metadata = { title: "ほしいもの" };
 
 export default async function WishlistPage() {
-  const { uid } = await requireProfile();
-  const wishes = await listWishes(uid);
+  const { uid, profile } = await requireProfile();
+  const wishes = await listVisibleWishes(uid, profile);
   return (
     <div className="space-y-4">
       <div>

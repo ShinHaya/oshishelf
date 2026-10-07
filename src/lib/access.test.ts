@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { adultAiAllowed, aiItems, aiSafeItems, canSeeAdult, canSeeItem } from "./access";
+import { adultAiAllowed, aiItems, aiSafeItems, canSeeAdult, canSeeItem, canWishItem, resolveWishes } from "./access";
+import type { Item, Wish } from "./types";
 import { makeItem, makeProfile } from "./test-fixtures";
 
 describe("公開範囲", () => {
@@ -67,5 +68,61 @@ describe("成人向け表示とAIへの入力", () => {
       }
     }
     expect(adultAiAllowed(makeProfile({ isAdult: true, aiUseAdult: true }), null)).toBe(false);
+  });
+});
+
+describe("ほしいリストの再判定", () => {
+  const wish = (itemId: string): Wish => ({
+    itemId, ownerUid: "owner", url: "https://old.example/", title: "保存時のタイトル", imageUrl: null,
+    shop: "example", shopLabel: "Example", lastPrice: 1000, watch: true, createdAt: 1, lastCheckedAt: null,
+  });
+  const viewer = { uid: "viewer", profile: makeProfile() };
+  const resolve = (items: Item[], following = new Set<string>(), v = viewer) =>
+    resolveWishes(items.map((i) => wish(i.id)), new Map(items.map((i) => [i.id, i])), v, following);
+
+  it("公開中の作品は現在のタイトル・URL・画像で表示する", () => {
+    const item = makeItem({ title: "現在のタイトル", url: "https://shop.example/1" });
+    const { visible } = resolve([item]);
+    expect(visible).toEqual([expect.objectContaining({ itemId: item.id, title: "現在のタイトル", url: "https://shop.example/1", imageUrl: item.imageUrl })]);
+  });
+
+  it.each([
+    ["非公開", { visibility: "private" }],
+    ["下書きに戻した", { status: "draft" }],
+    ["商品情報が未取得", { title: "https://shop.example/library" }],
+    ["成人向け（閲覧者が未同意）", { isAdult: true }],
+  ] as const)("%s の作品は表示しない", (_, overrides) => {
+    const { visible, gone } = resolve([makeItem(overrides as Partial<Item>)]);
+    expect(visible).toEqual([]);
+    expect(gone).toEqual([]);
+  });
+
+  it("フォロワー限定はフォロー中だけ表示し、フォロー解除後は表示しない", () => {
+    const item = makeItem({ visibility: "followers" });
+    expect(resolve([item], new Set(["owner"])).visible).toHaveLength(1);
+    expect(resolve([item]).visible).toEqual([]);
+  });
+
+  it("成人向けは閲覧者の成人申告と表示同意があれば表示する", () => {
+    const adultViewer = { uid: "viewer", profile: makeProfile({ isAdult: true, showAdult: true }) };
+    expect(resolve([makeItem({ isAdult: true })], new Set(), adultViewer).visible).toHaveLength(1);
+  });
+
+  it("削除された作品（退会を含む）は削除対象として返す", () => {
+    const { visible, gone } = resolveWishes([wish("deleted")], new Map(), viewer, new Set());
+    expect(visible).toEqual([]);
+    expect(gone).toEqual(["deleted"]);
+  });
+
+  it("検索結果リンクに変わった作品は価格ウォッチを止める", () => {
+    expect(resolve([makeItem({ urlIsSearch: true })]).visible[0].watch).toBe(false);
+  });
+
+  it("ほしい登録も同じ条件で判定する", () => {
+    const ctx = { viewerUid: "viewer", viewerProfile: makeProfile(), following: false };
+    expect(canWishItem(makeItem(), ctx)).toBe(true);
+    expect(canWishItem(makeItem({ isAdult: true }), ctx)).toBe(false);
+    expect(canWishItem(makeItem({ title: "Amazon サインイン" }), ctx)).toBe(false);
+    expect(canWishItem(makeItem({ status: "draft", ownerUid: "viewer" }), ctx)).toBe(false);
   });
 });

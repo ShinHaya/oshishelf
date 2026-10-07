@@ -11,6 +11,11 @@ idx --collection-group=items --field-config=field-path=ownerUid,order=ascending 
 idx --collection-group=items --field-config=field-path=status,order=ascending --field-config=field-path=visibility,order=ascending --field-config=field-path=publishedAt,order=descending
 idx --collection-group=items --field-config=field-path=ownerUid,order=ascending --field-config=field-path=productKey,order=ascending
 idx --collection-group=agentRuns --field-config=field-path=uid,order=ascending --field-config=field-path=agent,order=ascending --field-config=field-path=startedAt,order=descending
+# Collection-group single-field indexes: removing other users' wishes when an item or account is deleted.
+for f in itemId ownerUid; do
+  $G firestore indexes fields update "$f" --collection-group=wishes \
+    --index=order=ascending,query-scope=collection --index=order=ascending,query-scope=collection-group --async 2>&1 || true
+done
 # Vector index for taste matching (gemini-embedding-001, 768 dims)
 idx --collection-group=users --query-scope=COLLECTION --field-config='field-path=tasteVector,vector-config={"dimension":"768","flat":"{}"}'
 

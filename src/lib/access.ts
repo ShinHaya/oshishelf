@@ -1,5 +1,5 @@
 import { lacksProductInfo } from "./shops";
-import { CATEGORY_LABELS, type Item, type UserProfile } from "./types";
+import { CATEGORY_LABELS, type Item, type UserProfile, type Wish } from "./types";
 
 export interface ViewContext {
   viewerUid: string | null;
@@ -22,6 +22,37 @@ export function canSeeItem(item: Item, ctx: ViewContext): boolean {
 /** R18 items stay hidden unless the viewer declared 18+ and opted in. */
 export function canSeeAdult(viewer: UserProfile | null): boolean {
   return !!viewer?.isAdult && !!viewer.showAdult;
+}
+
+/** Whether a viewer may wish for / keep seeing an item: published, visible to them, and R18 only with their opt-in. */
+export function canWishItem(item: Item, ctx: ViewContext): boolean {
+  return item.status === "published" && canSeeItem(item, ctx) && (!item.isAdult || item.ownerUid === ctx.viewerUid || canSeeAdult(ctx.viewerProfile));
+}
+
+/**
+ * Re-check saved wishes against the live items: a wish is shown (with the item's current title, link
+ * and image) only while the viewer may still see the item. Wishes whose item no longer exists are
+ * returned in `gone` for cleanup; items that are merely hidden now are kept but not shown.
+ */
+export function resolveWishes(
+  wishes: Wish[],
+  items: Map<string, Item>,
+  viewer: { uid: string; profile: UserProfile | null },
+  followingOwners: Set<string>,
+): { visible: Wish[]; gone: string[] } {
+  const visible: Wish[] = [];
+  const gone: string[] = [];
+  for (const w of wishes) {
+    const item = items.get(w.itemId);
+    if (!item) {
+      gone.push(w.itemId);
+      continue;
+    }
+    const ctx = { viewerUid: viewer.uid, viewerProfile: viewer.profile, following: followingOwners.has(item.ownerUid) };
+    if (!canWishItem(item, ctx)) continue;
+    visible.push({ ...w, ownerUid: item.ownerUid, url: item.url, title: item.title, imageUrl: item.imageUrl, shop: item.shop, shopLabel: item.shopLabel, watch: w.watch && !item.urlIsSearch });
+  }
+  return { visible, gone };
 }
 
 /** R18 items are shown to the model without title, image or URL: only shop, category and genre tags. */
