@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useState } from "react";
 import { importPasteAction, importScreenshotAction, importUrlsAction, type ActionResult } from "@/app/actions";
+import { BookmarkletLink } from "./bookmarklet-link";
 import type { ImportReport } from "@/lib/ai/agents/importer";
 
 const TABS = [
@@ -45,11 +46,6 @@ export function ImportResult({ state }: { state: ActionResult<ImportReport> | nu
 
 export function ImportTabs({ bookmarklet }: { bookmarklet: string }) {
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("bulk");
-  const bmRef = useRef<HTMLAnchorElement>(null);
-  // React blocks javascript: URLs in JSX, so the bookmarklet href is set directly on the DOM node.
-  useEffect(() => {
-    bmRef.current?.setAttribute("href", bookmarklet);
-  }, [bookmarklet, tab]);
   const [urlState, urlAction, urlPending] = useActionState(importUrlsAction, null);
   const [shotState, shotAction, shotPending] = useActionState(importScreenshotAction, null);
   const [pasteState, pasteAction, pastePending] = useActionState(importPasteAction, null);
@@ -78,22 +74,13 @@ export function ImportTabs({ bookmarklet }: { bookmarklet: string }) {
               <li>
                 下のボタンをブックマークバーにドラッグ＆ドロップ
                 <div className="my-2">
-                  <a
-                    ref={bmRef}
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      alert("このボタンをブックマークバーにドラッグしてください");
-                    }}
-                    className="btn-primary cursor-grab"
-                  >
-                    📚 推し棚に取り込む
-                  </a>
+                  <BookmarkletLink href={bookmarklet} />
                 </div>
               </li>
               <li>FANZA・DLsite・Amazon などの「購入履歴」「ライブラリ」ページを開く（ログインしたまま）</li>
               <li>ブックマークをクリック → ページを自動でスクロール・次のページもたどって、取り込みエージェントが購入した商品だけを読み取ります</li>
             </ol>
+            <p className="mt-2 text-xs text-ink-2">登録後は実行時に最新版を読み込みます。すでに登録している方は、最初の一度だけブックマークを更新してください。</p>
             <p className="mt-2 text-xs text-ink-2">
               🔒 パスワードやログイン情報は推し棚に送られません。ページ上の商品リンクとテキストだけを、あなたのブラウザから直接渡します。
             </p>

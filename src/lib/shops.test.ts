@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicalizeUrl, detectShop, looksLikeProductUrl } from "./shops";
+import { canonicalizeUrl, detectShop, looksLikeProductUrl, publicProductUrl } from "./shops";
 
 describe("商品URLの判定と重複排除", () => {
   it.each([
@@ -32,6 +32,19 @@ describe("商品URLの判定と重複排除", () => {
   it("未知のショップでも商品識別用のクエリは保持する", () => {
     expect(canonicalizeUrl("https://example.com/product?id=123&utm_source=test#detail"))
       .toBe("https://example.com/product?id=123");
+  });
+
+  it("FANZA同人の購入済み詳細と公開商品を同じ作品として扱う", () => {
+    const owned = "https://www.dmm.co.jp/dc/-/mylibrary/detail/=/product_id=d_123456/";
+    const product = "https://www.dmm.co.jp/dc/doujin/-/detail/=/cid=d_123456/";
+    expect(publicProductUrl(owned)).toBe(product);
+    expect(detectShop(owned).productKey).toBe(detectShop(product).productKey);
+    expect(publicProductUrl("https://shop.example/dc/-/mylibrary/detail/=/product_id=d_123456/")).toBeNull();
+  });
+
+  it("未知のショップでクエリ内の商品IDが違う作品を重複扱いしない", () => {
+    expect(detectShop("https://shop.example/product?id=1").productKey)
+      .not.toBe(detectShop("https://shop.example/product?id=2").productKey);
   });
 
   it("不正URLは商品候補から除外する", () => {

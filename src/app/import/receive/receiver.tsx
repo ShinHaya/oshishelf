@@ -3,10 +3,13 @@
 import { useEffect, useState, useTransition } from "react";
 import { importBulkAction, type ActionResult } from "@/app/actions";
 import type { ImportReport } from "@/lib/ai/agents/importer";
+import { BookmarkletLink } from "../bookmarklet-link";
 import { ImportResult } from "../import-tabs";
 
 interface Payload {
   type: "oshishelf:cards" | "oshishelf:links";
+  version?: number;
+  mode?: "remote" | "embedded";
   page: string;
   title?: string;
   cards?: { href: string; text: string; context: string; section: string; imgs: { src: string; alt: string }[]; page: number }[];
@@ -15,7 +18,7 @@ interface Payload {
   text?: string;
 }
 
-export function Receiver() {
+export function Receiver({ bookmarklet, version }: { bookmarklet: string; version: number }) {
   const [payload, setPayload] = useState<Payload | null>(null);
   const [result, setResult] = useState<ActionResult<ImportReport> | null>(null);
   const [pending, start] = useTransition();
@@ -41,6 +44,17 @@ export function Receiver() {
     );
   }
 
+  if (payload.version !== version) {
+    return (
+      <div className="card space-y-3 p-6">
+        <h1 className="font-display text-xl font-bold">取り込み用ブックマークの更新が必要です</h1>
+        <p className="text-sm text-ink-2">購入した商品だけを正確に読み取るため、最初の一度だけ登録済みのブックマークを更新してください。通常は、次回から実行時に最新版を自動で読み込みます。</p>
+        <BookmarkletLink href={bookmarklet} update />
+        <p className="text-sm text-ink-2">更新後、購入履歴のタブに戻り、更新したブックマークをクリックしてください。</p>
+      </div>
+    );
+  }
+
   const count = payload.cards?.length ?? payload.links?.length ?? 0;
   const pages = payload.cards ? Math.max(1, ...payload.cards.map((c) => c.page)) : 1;
   let host = "";
@@ -54,6 +68,9 @@ export function Receiver() {
       <p className="text-sm text-ink-2">
         {pages > 1 ? `${pages}ページ分の` : "ページ上の"}リンク {count} 件を受け取りました。取り込みエージェントが、購入した商品だけを選び出します（おすすめ・広告・試し読みなどは除外します）。
       </p>
+      {payload.mode === "embedded" && (
+        <p className="text-xs text-warn">このサイトでは最新版を読み込めなかったため、登録時の読み取り処理を使っています。今後の改善を反映するには、取り込みページでブックマークを更新してください。</p>
+      )}
       {!result?.ok && (
         <button
           className="btn-primary w-full"
