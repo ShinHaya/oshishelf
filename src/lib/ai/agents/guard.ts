@@ -2,6 +2,7 @@ import "server-only";
 import { Type, type Schema } from "@google/genai";
 import { generateJson, LITE_MODEL } from "../gemini";
 import { getItems, setGuard } from "../../data/items";
+import { lacksProductInfo } from "../../shops";
 import type { GuardLevel, GuardResult, Item, Visibility } from "../../types";
 
 const schema: Schema = {
@@ -37,6 +38,8 @@ suggestedVisibility は warn なら "followers" か "private"、block なら "pr
 理由は「健康に関する商品です」のように本人に優しく、短く書いてください。過剰に警告しないでください。
 マンガ・小説・映像・ゲームなどの作品は、タイトルに「薬」「病」「借金」などの語が含まれていても、それだけで warn にしない（作品の題名であって、健康・金融の商品ではないため）。`;
 
+const MISSING_INFO_NOTE = "商品情報を取得できませんでした。商品名を入力すると公開できます";
+
 const ADULT_NOTE = "成人向け（R18）作品です。公開しても、18歳以上と申告して表示をONにした人にしか見えません";
 
 /**
@@ -50,8 +53,8 @@ export async function runPrivacyGuard(uid: string, itemIds: string[]): Promise<n
   const toModel: Item[] = [];
 
   for (const it of items) {
-    if (/^https?:\/\//.test(it.title)) {
-      results.push({ id: it.id, guard: guard("warn", ["商品情報を取得できませんでした。URLが正しいか確認してください"], it.visibility) });
+    if (lacksProductInfo(it)) {
+      results.push({ id: it.id, guard: guard("warn", [MISSING_INFO_NOTE], it.visibility) });
     } else if (it.isAdult) {
       results.push({ id: it.id, guard: guard("warn", [ADULT_NOTE], it.visibility) });
     } else {

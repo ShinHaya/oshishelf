@@ -4,6 +4,7 @@ import { CATEGORY_LABELS } from "@/lib/types";
 import { Avatar } from "./avatar";
 import { WishButton } from "./wish-button";
 import { ReviewView } from "./review";
+import { lacksProductInfo } from "@/lib/shops";
 
 function hueOf(s: string) {
   let h = 0;
@@ -51,6 +52,19 @@ export function ItemCard({
       <div className="card flex aspect-[3/5] flex-col items-center justify-center gap-1 p-3 text-center text-xs text-ink-2">
         <span className="rounded bg-surface-2 px-2 py-0.5 font-bold">R18</span>
         <span>18歳以上の方は設定で表示をONにできます</span>
+      </div>
+    );
+  }
+  if (lacksProductInfo(item)) {
+    // No real title and possibly a members-only link: only the owner sees it, with a way to fix it.
+    if (reactAs !== "owner") return null;
+    return (
+      <div className="card flex aspect-[3/5] flex-col items-center justify-center gap-2 p-3 text-center text-xs text-ink-2">
+        <span className="rounded bg-surface-2 px-2 py-0.5 font-bold">{item.shopLabel}</span>
+        <span>商品情報を取得できませんでした。ほかの人には表示されていません</span>
+        <Link href="/shelf" className="btn-ghost !px-3 !py-1 !text-xs">
+          商品名を入力する
+        </Link>
       </div>
     );
   }

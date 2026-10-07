@@ -3,10 +3,10 @@ import { getViewer } from "@/lib/session";
 import { getItem, incrementClick } from "@/lib/data/items";
 import { isFollowing } from "@/lib/data/social";
 import { canSeeAdult, canSeeItem } from "@/lib/access";
-import { withAffiliate } from "@/lib/shops";
+import { lacksProductInfo, withAffiliate } from "@/lib/shops";
 
 /** Outbound link to the shop: checks visibility, counts the click, and applies affiliate params. */
-export async function GET(_req: Request, ctx: RouteContext<"/go/[itemId]">) {
+export async function GET(req: Request, ctx: RouteContext<"/go/[itemId]">) {
   const { itemId } = await ctx.params;
   const [item, viewer] = await Promise.all([getItem(itemId), getViewer()]);
   if (!item) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -16,6 +16,9 @@ export async function GET(_req: Request, ctx: RouteContext<"/go/[itemId]">) {
   if (!canSeeItem(item, { viewerUid: me?.uid ?? null, viewerProfile: me, following }) || (item.isAdult && !isOwner && !canSeeAdult(me))) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
+  // The stored link may be a members-only page (library / order history); others never see such
+  // items (canSeeItem), and the owner is sent to enter the title instead.
+  if (lacksProductInfo(item)) return NextResponse.redirect(new URL(item.status === "draft" ? "/import/review" : "/shelf", req.url), 302);
   if (!isOwner) incrementClick(item.id).catch(() => {});
   return NextResponse.redirect(withAffiliate(item.url), 302);
 }

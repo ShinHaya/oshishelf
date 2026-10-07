@@ -159,6 +159,51 @@ export function canonicalizeUrl(rawUrl: string): string {
   return u.toString();
 }
 
+/**
+ * Public product page for a members-only URL (library, reader, order page) that still carries the
+ * product id, e.g. Kindle's read.amazon.co.jp/?asin=… Returns null when the id cannot be recovered.
+ */
+export function publicProductUrl(rawUrl: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  const h = host(u);
+  if (/(^|\.)amazon\.(co\.jp|com)$/.test(h)) {
+    const asin = u.searchParams.get("asin") ?? u.searchParams.get("ASIN") ?? u.pathname.match(/\/(B0[A-Z0-9]{8})(?:\/|$)/i)?.[1];
+    if (asin && /^[A-Z0-9]{10}$/i.test(asin)) return `https://www.${h.endsWith("amazon.com") ? "amazon.com" : "amazon.co.jp"}/dp/${asin.toUpperCase()}`;
+  }
+  return null;
+}
+
+/** Title of a sign-in screen (served instead of the product when the URL needs the buyer's login). */
+const LOGIN_WALL_TITLE = /^(?:amazon(?:\.co\.jp|\.com)?|楽天(?:会員)?|rakuten|dmm(?:\.com)?|fanza|dlsite|booth|pixiv|steam)?\s*[:：]?\s*(?:サインイン|ログイン|sign[\s-]?in|log[\s-]?in)(?:して(?:ください)?|が必要です|画面|ページ)?(?:\s*[-|｜:：].*)?$/i;
+
+export function isLoginWallTitle(title: string | null | undefined): boolean {
+  return !!title && LOGIN_WALL_TITLE.test(title.trim());
+}
+
+/**
+ * The product page could not be read at import, so the item has no real title (the URL, or a
+ * sign-in screen's title) and its link may lead to a members-only page. Such items stay hidden
+ * from other people until the owner enters the title.
+ */
+export function lacksProductInfo(item: { title: string }): boolean {
+  return /^https?:\/\//.test(item.title) || isLoginWallTitle(item.title);
+}
+
+/** Sign-in pages a shop redirects to when the requested page needs the buyer's login. */
+export function isLoginUrl(rawUrl: string): boolean {
+  try {
+    const u = new URL(rawUrl);
+    return /^(login|signin|accounts?|auth)\./.test(u.hostname) || /\/(ap\/signin|signin|sign-in|sign_in|login|log-in|auth\/login)(\/|$|\.)/i.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
 /** When only a title is known (e.g. from a screenshot), link to the shop's search results. */
 export function shopSearchUrl(shopHint: string | undefined, title: string): { url: string; shop: string } {
   const q = encodeURIComponent(title);

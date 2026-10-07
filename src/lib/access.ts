@@ -1,3 +1,4 @@
+import { lacksProductInfo } from "./shops";
 import { CATEGORY_LABELS, type Item, type UserProfile } from "./types";
 
 export interface ViewContext {
@@ -11,6 +12,8 @@ export interface ViewContext {
 export function canSeeItem(item: Item, ctx: ViewContext): boolean {
   if (item.ownerUid === ctx.viewerUid) return true;
   if (item.status !== "published") return false;
+  // No real title, and the link may be a members-only page: hidden until the owner fixes it.
+  if (lacksProductInfo(item)) return false;
   if (item.visibility === "private") return false;
   if (item.visibility === "followers" && !ctx.following) return false;
   return true;
@@ -33,7 +36,7 @@ export function redactAdult(item: Item): Item {
  */
 export function aiItems(items: Item[], includeAdult: boolean): Item[] {
   return items
-    .filter((i) => i.status === "published" && i.visibility === "public" && (!i.isAdult || includeAdult))
+    .filter((i) => i.status === "published" && i.visibility === "public" && !lacksProductInfo(i) && (!i.isAdult || includeAdult))
     .map((i) => (i.isAdult ? redactAdult(i) : i));
 }
 

@@ -1,6 +1,6 @@
 import "server-only";
 import { safeFetchText } from "./safe-fetch";
-import { detectShop } from "./shops";
+import { detectShop, isLoginUrl, isLoginWallTitle } from "./shops";
 
 export interface ProductMeta {
   title: string | null;
@@ -9,6 +9,8 @@ export interface ProductMeta {
   description: string | null;
   /** Genre labels listed on the product page (FANZA / DMM / DLsite). */
   genres?: string[];
+  /** The shop answered with its sign-in page: the URL is members-only (library, order page…). */
+  loginWall?: boolean;
 }
 
 /** Genre links on FANZA/DMM (`article=keyword`) and DLsite (`/genre/`) product pages. */
@@ -97,6 +99,7 @@ export async function readProductWithGemini(url: string): Promise<ProductMeta> {
   const line = (res.text ?? "").trim().split("\n")[0] ?? "";
   if (!line || line.startsWith("NONE")) return { title: null, imageUrl: null, price: null, description: null };
   const [title, price] = line.split("|").map((x) => x.trim());
+  if (isLoginWallTitle(title)) return { title: null, imageUrl: null, price: null, description: null, loginWall: true };
   return { title: title || null, imageUrl: null, price: parsePrice(price), description: null };
 }
 
@@ -131,6 +134,7 @@ export async function fetchProductMeta(url: string): Promise<ProductMeta> {
   // FANZA and DLsite show an age-check interstitial unless these cookies are set.
   const cookie = info.shop === "fanza" ? "age_check_done=1" : info.shop === "dlsite" ? "adultchecked=1" : undefined;
   const res = await safeFetchText(url, { cookie });
+  if (isLoginUrl(res.url)) return { title: null, imageUrl: null, price: null, description: null, loginWall: true };
   if (res.status >= 400) return { title: null, imageUrl: null, price: null, description: null };
   const html = res.text;
   const ld = jsonLdProduct(html);
@@ -150,5 +154,6 @@ export async function fetchProductMeta(url: string): Promise<ProductMeta> {
   imageUrl = largeDmmImage(imageUrl);
   if (imageUrl && !/^https?:\/\//.test(imageUrl)) imageUrl = null;
 
+  if (isLoginWallTitle(title) || isLoginWallTitle(cleanTitle(title, info.shop))) return { title: null, imageUrl: null, price: null, description: null, loginWall: true };
   return { title: cleanTitle(title, info.shop), imageUrl, price, description: meta(html, "og:description"), genres: extractGenres(html) };
 }
