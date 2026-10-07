@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   createUserWithEmailAndPassword,
+  getAdditionalUserInfo,
   GoogleAuthProvider,
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
+  TwitterAuthProvider,
   type User,
   type UserCredential,
 } from "firebase/auth";
@@ -29,7 +31,7 @@ const ERRORS: Record<string, string> = {
   "auth/cancelled-popup-request": "ログインがキャンセルされました",
   "auth/operation-not-allowed": "このログイン方法は現在利用できません",
   "auth/unauthorized-domain": "このドメインからのログインは許可されていません",
-  "auth/account-exists-with-different-credential": "このメールアドレスは別の方法で登録済みです。メールアドレスでログインしてください",
+  "auth/account-exists-with-different-credential": "このメールアドレスは別の方法（Googleまたはメールアドレス）で登録済みです。そちらでログインしてください",
 };
 
 class UnverifiedEmailError extends Error {}
@@ -38,6 +40,12 @@ function googleProvider() {
   const provider = new GoogleAuthProvider();
   // Always show the account chooser so people can pick which Google account to use.
   provider.setCustomParameters({ prompt: "select_account" });
+  return provider;
+}
+
+function xProvider() {
+  const provider = new TwitterAuthProvider();
+  provider.setCustomParameters({ lang: "ja" });
   return provider;
 }
 
@@ -78,7 +86,7 @@ export function LoginForm({ initialMode, notice: initialNotice }: { initialMode:
     setResetSentTo(null);
   }
 
-  async function finish(user: User) {
+  async function finish(user: User, suggestedHandle?: string) {
     // Password accounts must confirm their email first. Besides proving ownership, a verified
     // email keeps the password sign-in when the same address later signs in with Google.
     const isPassword = user.providerData.some((p) => p.providerId === "password");
@@ -91,7 +99,8 @@ export function LoginForm({ initialMode, notice: initialNotice }: { initialMode:
     // The session cookie is the only credential the server trusts; drop the client SDK session.
     await signOut(clientAuth);
     if (!res.ok) throw new Error("session");
-    router.replace("/");
+    // New X users get their X username offered as the handle during onboarding.
+    router.replace(suggestedHandle ? `/onboarding?handle=${encodeURIComponent(suggestedHandle)}` : "/");
     router.refresh();
   }
 
@@ -102,7 +111,8 @@ export function LoginForm({ initialMode, notice: initialNotice }: { initialMode:
     setUnverified(false);
     try {
       const cred = await signIn();
-      await finish(cred.user);
+      const info = getAdditionalUserInfo(cred);
+      await finish(cred.user, info?.isNewUser && info.providerId === "twitter.com" ? (info.username ?? undefined) : undefined);
     } catch (e) {
       if (e instanceof UnverifiedEmailError) {
         setUnverified(true);
@@ -202,6 +212,12 @@ export function LoginForm({ initialMode, notice: initialNotice }: { initialMode:
               <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z" />
             </svg>
             Googleで{mode === "signup" ? "はじめる" : "ログイン"}
+          </button>
+          <button type="button" className="btn-ghost mt-2 w-full !py-2.5" disabled={busy} onClick={() => run(() => signInWithPopup(clientAuth, xProvider()))}>
+            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden fill="currentColor">
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+            </svg>
+            Xで{mode === "signup" ? "はじめる" : "ログイン"}
           </button>
           <div className="my-4 flex items-center gap-3 text-xs text-ink-2">
             <span className="h-px flex-1 bg-line" />

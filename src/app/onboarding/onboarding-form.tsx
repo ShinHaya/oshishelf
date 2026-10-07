@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { createProfileAction } from "@/app/actions";
 
-export function OnboardingForm({ defaultName }: { defaultName: string }) {
+export function OnboardingForm({ defaultName, defaultHandle }: { defaultName: string; defaultHandle: string }) {
   const [state, action, pending] = useActionState(createProfileAction, null);
   return (
     <form action={action} className="card space-y-4 p-6">
@@ -12,7 +12,7 @@ export function OnboardingForm({ defaultName }: { defaultName: string }) {
         ハンドル（URLになります）
         <div className="mt-1 flex items-center gap-1">
           <span className="text-ink-2">@</span>
-          <input name="handle" className="input" required pattern="[a-z0-9_]{3,20}" placeholder="oshi_lover" />
+          <input name="handle" className="input" required pattern="[a-z0-9_]{3,20}" defaultValue={defaultHandle} placeholder="oshi_lover" />
         </div>
         <span className="text-xs text-ink-2">半角英小文字・数字・_ の3〜20文字</span>
       </label>
