@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { deleteItemsAction, fixItemTitleAction, publishDraftsAction, updateItemsVisibilityAction, updateItemVisibilityAction } from "@/app/actions";
+import { deleteItemsAction, fixItemTitleAction, publishDraftsAction, updateItemsVisibilityAction, updateItemVisibilityAction, updateItemShelfCategoryAction } from "@/app/actions";
 import { ReviewEditor } from "./review";
 import { CATEGORY_LABELS, VISIBILITY_LABELS, type Item, type Visibility } from "@/lib/types";
 import { lacksProductInfo } from "@/lib/shops";
@@ -31,10 +31,15 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
     Object.fromEntries(items.map((i) => [i.id, i.guard && i.guard.level !== "ok" && mode === "draft" ? i.guard.suggestedVisibility : i.visibility])),
   );
 
+  const categories = [...new Set(items.map((i) => i.shelfCategory).filter((c): c is string => !!c))].sort();
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const activeCategoryFilter = categories.includes(categoryFilter) ? categoryFilter : "";
   const flaggedCount = items.filter(isFlagged).length;
   const unfetchedCount = items.filter(lacksProductInfo).length;
   const readyCount = items.filter(isReady).length;
-  const shown = useMemo(() => (filter === "all" ? items : items.filter(FILTERS[filter])), [items, filter]);
+  const shown = useMemo(() => items.filter((i) =>
+    (filter === "all" || FILTERS[filter](i)) && (!activeCategoryFilter || i.shelfCategory === activeCategoryFilter)
+  ), [items, filter, activeCategoryFilter]);
 
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -84,6 +89,18 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
 
   return (
     <div className="space-y-3">
+      {mode === "published" && (
+        <label className="flex items-center gap-2 text-sm">
+          カテゴリーで絞り込み
+          <select className="input !w-auto" value={activeCategoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+            <option value="">すべて</option>
+            {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </label>
+      )}
+      <datalist id="shelf-category-options">
+        {categories.map((c) => <option key={c} value={c} />)}
+      </datalist>
       <div className="card sticky top-16 z-10 flex flex-wrap items-center gap-2 p-3">
         <label className="flex items-center gap-1.5 text-sm">
           <input type="checkbox" checked={selected.size === shown.length && shown.length > 0} onChange={(e) => setSelected(new Set(e.target.checked ? shown.map((i) => i.id) : []))} />
@@ -148,6 +165,7 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
                 <p className={`mt-1.5 text-xs ${item.guard.level === "block" ? "text-danger" : "text-warn"}`}>🛡️ {item.guard.reasons.join(" / ")}</p>
               )}
               {lacksProductInfo(item) && <TitleFixForm itemId={item.id} />}
+              {mode === "published" && <ShelfCategoryForm key={item.shelfCategory ?? ""} item={item} />}
               {mode === "published" && <ReviewEditor itemId={item.id} review={item.review} />}
             </div>
             <select
@@ -199,6 +217,31 @@ function TitleFixForm({ itemId }: { itemId: string }) {
         {pending ? "保存中…" : "保存"}
       </button>
       {error && <p className="w-full text-xs text-danger">{error}</p>}
+    </form>
+  );
+}
+
+function ShelfCategoryForm({ item }: { item: Item }) {
+  const router = useRouter();
+  const [category, setCategory] = useState(item.shelfCategory ?? "");
+  const [pending, start] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  return (
+    <form className="mt-2 flex flex-wrap items-center gap-1.5" onSubmit={(e) => {
+      e.preventDefault();
+      start(async () => {
+        const r = await updateItemShelfCategoryAction(item.id, category);
+        setMessage(r.ok ? "カテゴリーを保存しました" : r.error);
+        if (r.ok) router.refresh();
+      });
+    }}>
+      <label className="text-xs">
+        独自カテゴリー
+        <input className="input mt-1 !py-1 text-xs" value={category} onChange={(e) => setCategory(e.target.value)}
+          list="shelf-category-options" maxLength={40} placeholder="例：お気に入り・積読（空欄で解除）" disabled={pending} />
+      </label>
+      <button type="submit" className="btn-ghost !px-3 !py-1 !text-xs" disabled={pending}>{pending ? "保存中…" : "保存"}</button>
+      {message && <p role="status" className="w-full text-xs">{message}</p>}
     </form>
   );
 }

@@ -6,7 +6,7 @@ vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 vi.mock("@/lib/session", () => ({ requireProfile: vi.fn(), getViewer: vi.fn(), SESSION_COOKIE: "test-session" }));
 vi.mock("@/lib/data/account", () => ({}));
 vi.mock("@/lib/data/users", () => ({}));
-vi.mock("@/lib/data/items", () => ({}));
+vi.mock("@/lib/data/items", () => ({ updateItem: vi.fn() }));
 vi.mock("@/lib/data/reviews", () => ({}));
 vi.mock("@/lib/data/social", () => ({ consumeQuota: vi.fn() }));
 vi.mock("@/lib/ai/agents/importer", () => ({ extractFromText: vi.fn(), extractFromScreenshot: vi.fn(), importCandidates: vi.fn(), MAX_ITEMS_PER_IMPORT: 150 }));
@@ -20,7 +20,8 @@ import { requireProfile } from "@/lib/session";
 import { consumeQuota } from "@/lib/data/social";
 import { extractFromText, importCandidates } from "@/lib/ai/agents/importer";
 import { readPurchaseHistory } from "@/lib/ai/agents/history-reader";
-import { importBulkAction, importPasteAction } from "./actions";
+import { updateItem } from "@/lib/data/items";
+import { importBulkAction, importPasteAction, updateItemShelfCategoryAction } from "./actions";
 
 beforeEach(() => {
   vi.mocked(requireProfile).mockResolvedValue({ uid: "fictional-owner", profile: { defaultVisibility: "private" } } as Awaited<ReturnType<typeof requireProfile>>);
@@ -71,5 +72,34 @@ describe("purchase-history action boundaries", () => {
     await expect(importBulkAction({ page: "https://shop.example/orders", cards: [] })).rejects.toThrow("authentication required");
     expect(readPurchaseHistory).not.toHaveBeenCalled();
     expect(importCandidates).not.toHaveBeenCalled();
+  });
+});
+
+describe("custom shelf categories", () => {
+  it("saves a trimmed category using the authenticated owner", async () => {
+    expect((await updateItemShelfCategoryAction("fictional-item", "  積読  ")).ok).toBe(true);
+    expect(updateItem).toHaveBeenCalledWith("fictional-owner", "fictional-item", { shelfCategory: "積読" });
+  });
+
+  it("clears an empty category without changing publication or visibility", async () => {
+    await updateItemShelfCategoryAction("fictional-item", "   ");
+    expect(updateItem).toHaveBeenCalledWith("fictional-owner", "fictional-item", { shelfCategory: null });
+  });
+
+  it("rejects oversized categories and invalid document paths", async () => {
+    expect((await updateItemShelfCategoryAction("fictional-item", "あ".repeat(41))).ok).toBe(false);
+    expect((await updateItemShelfCategoryAction("other/item", "積読")).ok).toBe(false);
+    expect(updateItem).not.toHaveBeenCalled();
+  });
+
+  it("requires authentication before writing", async () => {
+    vi.mocked(requireProfile).mockRejectedValueOnce(new Error("authentication required"));
+    await expect(updateItemShelfCategoryAction("fictional-item", "積読")).rejects.toThrow("authentication required");
+    expect(updateItem).not.toHaveBeenCalled();
+  });
+
+  it("returns an error when the ownership check rejects the update", async () => {
+    vi.mocked(updateItem).mockRejectedValueOnce(new Error("not found"));
+    expect((await updateItemShelfCategoryAction("someone-elses-item", "積読")).ok).toBe(false);
   });
 });

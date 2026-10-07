@@ -51,6 +51,8 @@ export interface Item {
   imageUrl: string | null;
   price: number | null;
   category: Category;
+  /** Owner-defined shelf grouping; absent on older items. */
+  shelfCategory?: string | null;
   tags: string[];
   isAdult: boolean;
   visibility: Visibility;

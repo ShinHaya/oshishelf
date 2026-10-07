@@ -136,3 +136,15 @@ describe("ほしいリストの再判定", () => {
     expect(canWishItem(makeItem({ status: "draft", ownerUid: "viewer" }), ctx)).toBe(false);
   });
 });
+
+describe("独自カテゴリーとAI入力", () => {
+  it("独自カテゴリーを成人向けの入力に含めない", () => {
+    const item = makeItem({ isAdult: true, shelfCategory: "架空の個人用カテゴリー" });
+    expect(aiItems([item], true)[0].shelfCategory).toBeNull();
+    expect(item.shelfCategory).toBe("架空の個人用カテゴリー");
+  });
+
+  it("通常作品の独自カテゴリーもAIの分類には使わない", () => {
+    expect(aiItems([makeItem({ shelfCategory: "積読" })], false)[0].shelfCategory).toBeNull();
+  });
+});

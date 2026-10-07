@@ -8,7 +8,7 @@ import { isFollowing, wishedIds } from "@/lib/data/social";
 import { myReactions } from "@/lib/data/reviews";
 import { adultAiAllowed, canSeeAdult, canSeeItem } from "@/lib/access";
 import { getCachedCompatibility } from "@/lib/ai/agents/matcher";
-import { CATEGORY_LABELS, type Category, type Item, type ReviewReaction } from "@/lib/types";
+import { CATEGORY_LABELS, type Item, type ReviewReaction } from "@/lib/types";
 import { Avatar } from "@/components/avatar";
 import { FollowButton } from "@/components/follow-button";
 import { ItemCard } from "@/components/item-card";
@@ -45,8 +45,13 @@ export default async function ProfilePage(props: PageProps<"/u/[handle]">) {
 
   const reactions = me && !isMe ? await myReactions(me.uid, items.filter((i) => i.review?.text).map((i) => i.id)) : new Map<string, ReviewReaction>();
 
-  const groups = new Map<Category, Item[]>();
-  for (const it of items) groups.set(it.category, [...(groups.get(it.category) ?? []), it]);
+  const groups = new Map<string, { label: string; items: Item[] }>();
+  for (const it of items) {
+    const key = it.shelfCategory ? `custom:${it.shelfCategory}` : `default:${it.category}`;
+    const group = groups.get(key) ?? { label: it.shelfCategory || CATEGORY_LABELS[it.category], items: [] };
+    group.items.push(it);
+    groups.set(key, group);
+  }
 
   return (
     <div className="space-y-6">
@@ -119,10 +124,10 @@ export default async function ProfilePage(props: PageProps<"/u/[handle]">) {
 
       <section className="space-y-6">
         {items.length === 0 && <p className="card p-8 text-center text-sm text-ink-2">公開されている作品はまだありません。</p>}
-        {[...groups.entries()].map(([cat, list]) => (
+        {[...groups.entries()].map(([cat, { label, items: list }]) => (
           <div key={cat}>
             <h2 className="mb-2 font-display font-bold">
-              {CATEGORY_LABELS[cat]} <span className="text-sm font-normal text-ink-2">{list.length}</span>
+              {label} <span className="text-sm font-normal text-ink-2">{list.length}</span>
             </h2>
             <div className="shelf-row grid grid-cols-2 gap-3 pb-4 sm:grid-cols-4 lg:grid-cols-5">
               {list.map((item) => (
