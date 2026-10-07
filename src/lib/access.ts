@@ -23,7 +23,7 @@ export function canSeeAdult(viewer: UserProfile | null): boolean {
 
 /** R18 items are shown to the model without title, image or URL: only shop, category and genre tags. */
 export function redactAdult(item: Item): Item {
-  return { ...item, title: `成人向け作品（${item.shopLabel}・${CATEGORY_LABELS[item.category]}）`, imageUrl: null, url: "", note: "" };
+  return { ...item, title: `成人向け作品（${item.shopLabel}・${CATEGORY_LABELS[item.category]}）`, imageUrl: null, url: "", note: "", review: null };
 }
 
 /**

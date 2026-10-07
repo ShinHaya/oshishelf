@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getViewer } from "@/lib/session";
 import { listFeed, listRecentPublic } from "@/lib/data/items";
 import { listFollowing, wishedIds } from "@/lib/data/social";
+import { myReactions } from "@/lib/data/reviews";
 import { getUsers } from "@/lib/data/users";
 import { canSeeAdult, canSeeItem } from "@/lib/access";
 import { recommendUsers } from "@/lib/ai/agents/matcher";
@@ -20,7 +21,10 @@ export default async function Home(props: PageProps<"/">) {
     recommendUsers(me.uid, 5).catch(() => []),
   ]);
   const feed = feedRaw.filter((i) => canSeeItem(i, { viewerUid: me.uid, viewerProfile: me, following: true }));
-  const owners = await getUsers(feed.map((i) => i.ownerUid));
+  const [owners, reactions] = await Promise.all([
+    getUsers(feed.map((i) => i.ownerUid)),
+    myReactions(me.uid, feed.filter((i) => i.review?.text).map((i) => i.id)),
+  ]);
   const showAdult = canSeeAdult(me);
 
   return (
@@ -40,7 +44,7 @@ export default async function Home(props: PageProps<"/">) {
             {feed
               .filter((i) => showAdult || !i.isAdult)
               .map((item) => (
-                <ItemCard key={item.id} item={item} owner={owners.get(item.ownerUid)} wished={wished.has(item.id)} canWish />
+                <ItemCard key={item.id} item={item} owner={owners.get(item.ownerUid)} wished={wished.has(item.id)} canWish reaction={reactions.get(item.id)} reactAs="viewer" />
               ))}
           </div>
         )}
