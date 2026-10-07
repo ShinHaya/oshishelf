@@ -7,6 +7,11 @@ import { ReviewEditor } from "./review";
 import { CATEGORY_LABELS, VISIBILITY_LABELS, type Item, type Visibility } from "@/lib/types";
 import { lacksProductInfo } from "@/lib/shops";
 
+const isFlagged = (i: Item) => !!i.guard && i.guard.level !== "ok";
+/** Passed the guard and has real product info: nothing left for the owner to check. */
+const isReady = (i: Item) => !isFlagged(i) && !lacksProductInfo(i);
+const FILTERS = { flagged: isFlagged, unfetched: lacksProductInfo, ready: isReady } as const;
+
 const GUARD_STYLE = {
   ok: "",
   warn: "border-warn",
@@ -17,7 +22,7 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
   const router = useRouter();
   const [pending, start] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "flagged" | "unfetched">("all");
+  const [filter, setFilter] = useState<"all" | keyof typeof FILTERS>("all");
   // Pre-select everything the guard considers safe; flagged items must be opted in explicitly.
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(mode === "draft" ? items.filter((i) => (i.guard?.level ?? "ok") === "ok").map((i) => i.id) : []),
@@ -26,17 +31,10 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
     Object.fromEntries(items.map((i) => [i.id, i.guard && i.guard.level !== "ok" && mode === "draft" ? i.guard.suggestedVisibility : i.visibility])),
   );
 
-  const flaggedCount = items.filter((i) => i.guard && i.guard.level !== "ok").length;
+  const flaggedCount = items.filter(isFlagged).length;
   const unfetchedCount = items.filter(lacksProductInfo).length;
-  const shown = useMemo(
-    () =>
-      filter === "flagged"
-        ? items.filter((i) => i.guard && i.guard.level !== "ok")
-        : filter === "unfetched"
-          ? items.filter(lacksProductInfo)
-          : items,
-    [items, filter],
-  );
+  const readyCount = items.filter(isReady).length;
+  const shown = useMemo(() => (filter === "all" ? items : items.filter(FILTERS[filter])), [items, filter]);
 
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -99,6 +97,11 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
         {(unfetchedCount > 0 || filter === "unfetched") && (
           <button type="button" className="chip !text-warn" onClick={() => setFilter(filter === "unfetched" ? "all" : "unfetched")}>
             ⚠️ 情報未取得 {unfetchedCount} 件{filter === "unfetched" ? "のみ表示中" : ""}
+          </button>
+        )}
+        {(readyCount > 0 || filter === "ready") && (
+          <button type="button" className="chip" onClick={() => setFilter(filter === "ready" ? "all" : "ready")}>
+            ✅ 確認済み {readyCount} 件{filter === "ready" ? "のみ表示中" : ""}
           </button>
         )}
         <div className="flex items-center gap-1.5">
