@@ -153,17 +153,18 @@ export async function publishItems(ownerUid: string, entries: { id: string; visi
   return n;
 }
 
-export async function deleteItems(ownerUid: string, ids: string[]) {
+/** Delete the given items owned by `ownerUid`. Returns the ids actually deleted. */
+export async function deleteItems(ownerUid: string, ids: string[]): Promise<string[]> {
   const items = await getItems(ids);
   const owned = items.filter((i) => i.ownerUid === ownerUid);
-  if (!owned.length) return 0;
+  if (!owned.length) return [];
   const batch = db.batch();
   owned.forEach((i) => batch.delete(itemsCol().doc(i.id)));
   const publishedCount = owned.filter((i) => i.status === "published").length;
   if (publishedCount) batch.update(db.collection("users").doc(ownerUid), { itemCount: FieldValue.increment(-publishedCount) });
   await batch.commit();
   await deleteReactionsForItems(owned.filter((i) => i.review).map((i) => i.id));
-  return owned.length;
+  return owned.map((i) => i.id);
 }
 
 export async function updateItem(ownerUid: string, id: string, patch: Partial<Pick<Item, "visibility" | "note" | "title" | "category" | "isAdult">>) {

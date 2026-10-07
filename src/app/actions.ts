@@ -9,7 +9,7 @@ import { deleteAccount } from "@/lib/data/account";
 import { createUser, getUser, getUserByHandle, updateUser } from "@/lib/data/users";
 import { deleteItems, getItem, publishItems, setItemProductInfo, setItemsVisibility, updateItem } from "@/lib/data/items";
 import { deleteReview, setReaction, setReview } from "@/lib/data/reviews";
-import { addWish, consumeQuota, follow, isFollowing, markAllRead, notify, removeWish, unfollow } from "@/lib/data/social";
+import { addWish, consumeQuota, deleteWishesForItems, follow, isFollowing, markAllRead, notify, removeWish, unfollow } from "@/lib/data/social";
 import { extractFromScreenshot, extractFromText, importCandidates, MAX_ITEMS_PER_IMPORT, type ImportReport } from "@/lib/ai/agents/importer";
 import { readPurchaseHistory, type PageCard } from "@/lib/ai/agents/history-reader";
 import { generateBio, refreshTaste } from "@/lib/ai/agents/profiler";
@@ -19,7 +19,7 @@ import { runWatcherFor } from "@/lib/ai/agents/watcher";
 import { runPrivacyGuard } from "@/lib/ai/agents/guard";
 import { detectShop, isLoginWallTitle, lacksProductInfo, looksLikeProductUrl, publicProductUrl, shopSearchUrl } from "@/lib/shops";
 import type { AgentStep } from "@/lib/ai/adk";
-import { canSeeAdult, canSeeItem } from "@/lib/access";
+import { canSeeAdult, canSeeItem, canWishItem } from "@/lib/access";
 import type { AiBio, Item, ReviewReaction, Visibility } from "@/lib/types";
 
 export type ActionResult<T = void> = { ok: true; data: T } | { ok: false; error: string };
@@ -105,15 +105,16 @@ export async function toggleFollowAction(targetUid: string): Promise<ActionResul
 }
 
 export async function toggleWishAction(itemId: string, wished: boolean): Promise<ActionResult<boolean>> {
-  const { uid } = await requireProfile();
+  const { uid, profile } = await requireProfile();
   return attempt(async () => {
     if (wished) {
       await removeWish(uid, itemId);
       return false;
     }
-    const item = await getItem(itemId);
-    if (!item || item.status !== "published" || item.visibility === "private") throw new Error("商品が見つかりません");
-    if (item.visibility === "followers" && item.ownerUid !== uid && !(await isFollowing(uid, item.ownerUid))) throw new Error("商品が見つかりません");
+    const item = await getItem(z.string().min(1).parse(itemId));
+    const following = item?.visibility === "followers" ? await isFollowing(uid, item.ownerUid) : false;
+    // Same rule as viewing the item: no drafts, restricted, unfinished (members-only link) or unconsented R18 items.
+    if (!item || !canWishItem(item, { viewerUid: uid, viewerProfile: profile, following })) throw new Error("商品が見つかりません");
     await addWish(uid, item);
     revalidatePath("/wishlist");
     return true;
@@ -246,9 +247,11 @@ export async function publishDraftsAction(entries: { id: string; visibility: Vis
 export async function deleteItemsAction(ids: string[]): Promise<ActionResult<number>> {
   const { uid } = await requireProfile();
   return attempt(async () => {
-    const n = await deleteItems(uid, z.array(z.string()).max(300).parse(ids));
+    const deleted = await deleteItems(uid, z.array(z.string()).max(300).parse(ids));
+    // Other people's wishes must not keep a copy of a deleted item; their lists also drop it on read.
+    await deleteWishesForItems(deleted).catch((e) => console.error("deleteWishesForItems", e));
     revalidatePath("/", "layout");
-    return n;
+    return deleted.length;
   });
 }
 

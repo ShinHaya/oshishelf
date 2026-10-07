@@ -1,7 +1,10 @@
 import "server-only";
 import { FieldValue } from "firebase-admin/firestore";
 import { db } from "../firebase-admin";
-import type { Item, Notification, Wish } from "../types";
+import { resolveWishes } from "../access";
+import { getItems } from "./items";
+import type { Item, Notification, UserProfile, Wish } from "../types";
+import type { VisibleWish } from "../access";
 
 const followId = (follower: string, followee: string) => `${follower}_${followee}`;
 
@@ -71,6 +74,46 @@ export async function removeWish(uid: string, itemId: string) {
 export async function listWishes(uid: string): Promise<Wish[]> {
   const snap = await wishesCol(uid).orderBy("createdAt", "desc").limit(200).get();
   return snap.docs.map((d) => d.data() as Wish);
+}
+
+/**
+ * The user's wishes that they may still see, refreshed from the live items. Wishes whose item was
+ * deleted or withdrawn from them (including the owner leaving) are removed here, so stale copies never linger.
+ */
+export async function listVisibleWishes(uid: string, profile: UserProfile | null): Promise<VisibleWish[]> {
+  const wishes = await listWishes(uid);
+  const items = new Map((await getItems(wishes.map((w) => w.itemId))).map((i) => [i.id, i]));
+  const followersOnlyOwners = [...new Set([...items.values()].filter((i) => i.visibility === "followers").map((i) => i.ownerUid))];
+  const followed = await Promise.all(followersOnlyOwners.map(async (o) => ((await isFollowing(uid, o)) ? o : null)));
+  const { visible, gone } = resolveWishes(wishes, items, { uid, profile }, new Set(followed.filter((o): o is string => !!o)));
+  if (gone.length) {
+    const batch = db.batch();
+    gone.forEach((id) => batch.delete(wishesCol(uid).doc(id)));
+    await batch.commit().catch((e) => console.error("wishes cleanup", e));
+  }
+  return visible;
+}
+
+/** Remove everyone's wishes for these items (item deletion). Needs the `wishes.itemId` collection-group index. */
+export async function deleteWishesForItems(itemIds: string[]) {
+  for (let i = 0; i < itemIds.length; i += 30) {
+    const snap = await db.collectionGroup("wishes").where("itemId", "in", itemIds.slice(i, i + 30)).select().get();
+    await deleteDocs(snap.docs.map((d) => d.ref));
+  }
+}
+
+/** Remove everyone's wishes for this owner's items (account deletion). Needs the `wishes.ownerUid` collection-group index. */
+export async function deleteWishesForOwner(ownerUid: string) {
+  const snap = await db.collectionGroup("wishes").where("ownerUid", "==", ownerUid).select().get();
+  await deleteDocs(snap.docs.map((d) => d.ref));
+}
+
+async function deleteDocs(refs: FirebaseFirestore.DocumentReference[]) {
+  for (let i = 0; i < refs.length; i += 400) {
+    const batch = db.batch();
+    refs.slice(i, i + 400).forEach((r) => batch.delete(r));
+    await batch.commit();
+  }
 }
 
 export async function wishedIds(uid: string): Promise<Set<string>> {
