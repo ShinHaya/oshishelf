@@ -171,15 +171,12 @@ export async function importPasteAction(_: unknown, form: FormData): Promise<Act
     const text = String(form.get("text") ?? "").trim();
     if (text.length < 10) throw new Error("購入履歴ページのテキストを貼り付けてください");
     await consumeQuota(uid, "import");
-    // Pasted text may contain product URLs; prefer those.
-    const urls = [...new Set(text.match(/https?:\/\/[^\s"'<>]+/g) ?? [])].filter(looksLikeProductUrl);
-    const adultUrls = urls.filter((u) => detectShop(u).adult);
-    // R18 shop text is never sent to the model: use URL rules only, or ask for the bookmarklet.
-    if (adultUrls.length === 0 && ADULT_SHOP_TEXT.test(text) && urls.length < 3) {
+    // A bare product URL is not proof of purchase; preserve the page context for AI.
+    const urls = text.match(/https?:\/\/[^\s"'<>]+/g) ?? [];
+    if (ADULT_SHOP_TEXT.test(text) || urls.some((url) => detectShop(url).adult)) {
       throw new Error("成人向けショップ（FANZA・DLsite など）の購入履歴は、作品名をAIに送らないブックマークレットで取り込んでください");
     }
-    const candidates =
-      adultUrls.length > 0 || urls.length >= 3 ? urls.map((url) => ({ url, title: "" })) : await extractFromText(text);
+    const candidates = await extractFromText(text);
     const report = await importCandidates(uid, candidates, "paste", profile.defaultVisibility);
     revalidatePath("/import/review");
     return report;
@@ -218,13 +215,9 @@ export async function importBulkAction(payload: z.infer<typeof bulkSchema>): Pro
     await consumeQuota(uid, "import");
     const cards: PageCard[] =
       data.cards ?? (data.links ?? []).map((l) => ({ href: l.href, text: l.text, context: "", section: "", imgs: l.img ? [{ src: l.img, alt: "" }] : [], page: 1 }));
-    // The reading agent decides which links are purchases; code verifies URLs/images exist on the page.
+    // Ownership context is required before AI reads the cards; code verifies its selections.
     const read = await readPurchaseHistory(cards, data.page, data.title ?? "", MAX_ITEMS_PER_IMPORT);
-    let candidates = read.products;
-    // Full-page-text fallback only for non-R18 shops (R18 titles must not reach the model).
-    if (candidates.length === 0 && data.text && !detectShop(data.page).adult && !ADULT_SHOP_TEXT.test(data.title ?? "")) {
-      candidates = await extractFromText(data.text);
-    }
+    const candidates = read.products;
     if (candidates.length === 0) throw new Error("このページから購入した商品が見つかりませんでした。購入履歴・ライブラリのページで実行してください");
     const report = await importCandidates(uid, candidates, "bulk", profile.defaultVisibility);
     revalidatePath("/import/review");

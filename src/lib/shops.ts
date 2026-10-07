@@ -40,6 +40,8 @@ function dmmVideoId(u: URL): string | null {
 function dmmContentId(u: URL): string | null {
   if (u.hostname.startsWith("book.")) return dmmBookParts(u)?.cid ?? null;
   if (u.hostname.startsWith("video.")) return dmmVideoId(u);
+  const library = u.pathname.match(/^\/dc\/-\/mylibrary\/detail\/=\/product_id=([a-z0-9_]+)\//i);
+  if (library) return library[1].toLowerCase();
   return u.pathname.match(/cid=([a-z0-9_]+)/i)?.[1] ?? u.searchParams.get("cid");
 }
 
@@ -113,7 +115,7 @@ export function detectShop(rawUrl: string): ShopInfo {
     const id = path.match(/\/(de[0-9a-f-]{20,})/)?.[1] ?? null;
     return { shop: "bookwalker", label: "BOOK☆WALKER", adult: false, productKey: id ? `bw:${id}` : null, categoryHint: "comic" };
   }
-  return { shop: h, label: h, adult: false, productKey: `url:${u.origin}${path}`, categoryHint: null };
+  return { shop: h, label: h, adult: false, productKey: `url:${u.origin}${path}${u.search}`, categoryHint: null };
 }
 
 /** Patterns used to recognize product links on purchase-history pages (bookmarklet import). */
@@ -171,6 +173,10 @@ export function publicProductUrl(rawUrl: string): string | null {
     return null;
   }
   const h = host(u);
+  const library = u.pathname.match(/^\/dc\/-\/mylibrary\/detail\/=\/product_id=([a-z0-9_]+)\//i);
+  if ((h === "dmm.co.jp" || h === "dmm.com") && library) {
+    return `https://www.${h}/dc/doujin/-/detail/=/cid=${library[1].toLowerCase()}/`;
+  }
   if (/(^|\.)amazon\.(co\.jp|com)$/.test(h)) {
     const asin = u.searchParams.get("asin") ?? u.searchParams.get("ASIN") ?? u.pathname.match(/\/(B0[A-Z0-9]{8})(?:\/|$)/i)?.[1];
     if (asin && /^[A-Z0-9]{10}$/i.test(asin)) return `https://www.${h.endsWith("amazon.com") ? "amazon.com" : "amazon.co.jp"}/dp/${asin.toUpperCase()}`;
