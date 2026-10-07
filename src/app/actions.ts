@@ -275,6 +275,16 @@ export async function updateItemsVisibilityAction(ids: string[], v: Visibility):
   });
 }
 
+/** A shelf category is owner-entered text, independent of the product's AI classification. */
+export async function updateItemShelfCategoryAction(id: string, rawCategory: string): Promise<ActionResult> {
+  const { uid } = await requireProfile();
+  return attempt(async () => {
+    const category = z.string().trim().max(40, "カテゴリー名は40文字以内にしてください").parse(rawCategory);
+    await updateItem(uid, z.string().min(1).max(200).regex(/^[^/]+$/).parse(id), { shelfCategory: category || null });
+    revalidatePath("/", "layout");
+  });
+}
+
 export async function updateItemVisibilityAction(id: string, v: Visibility): Promise<ActionResult> {
   const { uid } = await requireProfile();
   return attempt(async () => {

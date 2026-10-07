@@ -77,7 +77,7 @@ export function resolveWishes(
 
 /** R18 items are shown to the model without title, image or URL: only shop, category and genre tags. */
 export function redactAdult(item: Item): Item {
-  return { ...item, title: `成人向け作品（${item.shopLabel}・${CATEGORY_LABELS[item.category]}）`, imageUrl: null, url: "", note: "", review: null };
+  return { ...item, title: `成人向け作品（${item.shopLabel}・${CATEGORY_LABELS[item.category]}）`, imageUrl: null, url: "", note: "", review: null, shelfCategory: null };
 }
 
 /**
@@ -88,7 +88,7 @@ export function redactAdult(item: Item): Item {
 export function aiItems(items: Item[], includeAdult: boolean): Item[] {
   return items
     .filter((i) => i.status === "published" && i.visibility === "public" && !lacksProductInfo(i) && (!i.isAdult || includeAdult))
-    .map((i) => (i.isAdult ? redactAdult(i) : i));
+    .map((i) => (i.isAdult ? redactAdult(i) : i.shelfCategory ? { ...i, shelfCategory: null } : i));
 }
 
 export function aiSafeItems(items: Item[]): Item[] {

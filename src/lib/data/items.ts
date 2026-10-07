@@ -19,6 +19,7 @@ export function toItem(id: string, d: FirebaseFirestore.DocumentData): Item {
     imageUrl: d.imageUrl ?? null,
     price: d.price ?? null,
     category: d.category ?? "other",
+    shelfCategory: d.shelfCategory ?? null,
     tags: d.tags ?? [],
     isAdult: !!d.isAdult,
     visibility: d.visibility ?? "public",
@@ -167,7 +168,7 @@ export async function deleteItems(ownerUid: string, ids: string[]): Promise<stri
   return owned.map((i) => i.id);
 }
 
-export async function updateItem(ownerUid: string, id: string, patch: Partial<Pick<Item, "visibility" | "note" | "title" | "category" | "isAdult">>) {
+export async function updateItem(ownerUid: string, id: string, patch: Partial<Pick<Item, "visibility" | "note" | "title" | "category" | "isAdult" | "shelfCategory">>) {
   const ref = itemsCol().doc(id);
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
