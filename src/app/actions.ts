@@ -185,22 +185,40 @@ export async function importPasteAction(_: unknown, form: FormData): Promise<Act
 
 const ADULT_SHOP_TEXT = /(FANZA|DLsite|dmm\.co\.jp|ファンザ)/i;
 
+const MAX_URL = 2000;
+const fitsUrl = (url: unknown) => typeof url !== "string" || url.length <= MAX_URL;
+
+/**
+ * Shops embed ad and tracking redirects whose URLs run to several kilobytes. A truncated URL points
+ * elsewhere, so drop those links and image candidates instead of failing the whole import.
+ */
+function dropOversizedUrls(cards: unknown): unknown {
+  if (!Array.isArray(cards)) return cards;
+  return cards
+    .filter((c) => fitsUrl(c?.href))
+    .map((c) => (Array.isArray(c?.imgs) ? { ...c, imgs: c.imgs.filter((i: { src?: unknown } | null) => fitsUrl(i?.src)) } : c));
+}
+
 const bulkSchema = z.object({
-  page: z.string().max(2000),
+  page: z.string().max(MAX_URL),
   title: z.string().max(300).optional(),
   // Current bookmarklet: links with their surrounding card, section heading and image candidates.
   cards: z
-    .array(
-      z.object({
-        href: z.string().max(2000),
-        text: z.string().max(500),
-        context: z.string().max(1000),
-        section: z.string().max(200),
-        imgs: z.array(z.object({ src: z.string().max(2000), alt: z.string().max(300) })).max(6),
-        page: z.number().int().min(1).max(20),
-      }),
+    .preprocess(
+      dropOversizedUrls,
+      z
+        .array(
+          z.object({
+            href: z.string().max(MAX_URL),
+            text: z.string().max(500),
+            context: z.string().max(1000),
+            section: z.string().max(200),
+            imgs: z.array(z.object({ src: z.string().max(MAX_URL), alt: z.string().max(300) })).max(6),
+            page: z.number().int().min(1).max(20),
+          }),
+        )
+        .max(2000),
     )
-    .max(2000)
     .optional(),
   // Older bookmarklets saved before the card format.
   links: z.array(z.object({ href: z.string().max(2000), text: z.string().max(500), img: z.string().max(2000).nullable().optional() })).max(3000).optional(),

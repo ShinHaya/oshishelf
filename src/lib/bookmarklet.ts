@@ -17,7 +17,8 @@ export function collectHistoryCards(doc: Document, base: string, page: number): 
       "";
     if (!raw || raw.startsWith("data:")) return null;
     try {
-      return new URL(raw, base).href;
+      const href = new URL(raw, base).href;
+      return href.length <= 2000 ? href : null;
     } catch {
       return null;
     }
@@ -98,7 +99,8 @@ export function collectHistoryCards(doc: Document, base: string, page: number): 
   doc.querySelectorAll("a[href]").forEach((a) => {
     try {
       const href = new URL(a.getAttribute("href") || "", base).href;
-      if (/^https?:/.test(href)) add(a, href, cardOf(a));
+      // Multi-kilobyte URLs are ad and tracking redirects; the server drops them too.
+      if (/^https?:/.test(href) && href.length <= 2000) add(a, href, cardOf(a));
     } catch { /* Ignore invalid links. */ }
   });
   // SPA libraries often open products through a click handler, with no anchor at all.

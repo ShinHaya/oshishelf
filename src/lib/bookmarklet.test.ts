@@ -65,6 +65,13 @@ describe("purchase-history card collection", () => {
     expect(collect(`<h1>購入済み作品</h1><ul><li><img src="/cover.jpg" alt="${title}">${title}</li></ul>`)[0].text).toHaveLength(200);
   });
 
+  it("skips multi-kilobyte ad and tracking URLs that the receiver would reject", () => {
+    const tracking = "/sspa/click?" + "x".repeat(2100);
+    const cards = collect(`<h1>注文履歴</h1><div>${linked("架空の本", "/dp/B000000001")}</div><div><a href="${tracking}"><img src="${tracking}" alt="架空の広告">架空の広告</a></div><div><a href="/dp/B000000002"><img src="${tracking}" alt="架空の本2">架空の本2</a></div>`);
+    expect(cards.map((c) => c.href)).toEqual(["https://shop.example/dp/B000000001", "https://shop.example/dp/B000000002"]);
+    expect(cards[1].imgs).toEqual([]);
+  });
+
   it("embeds a self-contained collector into the bookmarklet", () => {
     const script = decodeURIComponent(bookmarkletHref("https://shelf.example").slice("javascript:".length));
     expect(() => new Function(script)).not.toThrow();

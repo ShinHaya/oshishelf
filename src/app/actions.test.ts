@@ -56,6 +56,16 @@ describe("purchase-history action boundaries", () => {
     expect(importCandidates).not.toHaveBeenCalled();
   });
 
+  it("drops cards and images with oversized URLs instead of rejecting the whole import", async () => {
+    vi.mocked(readPurchaseHistory).mockResolvedValue({ products: [{ url: "https://www.amazon.co.jp/dp/B000000001", title: "架空の購入作品" }], reviewed: 1, excluded: 0, recovered: 0, notes: [] });
+    const tracking = "https://www.amazon.co.jp/sspa/click?" + "x".repeat(2100);
+    const card = (href: string, src: string) => ({ href, text: "架空の購入作品", context: "", section: "注文日", imgs: [{ src, alt: "" }], page: 1 });
+    const owned = card("https://www.amazon.co.jp/dp/B000000001", tracking);
+    const result = await importBulkAction({ page: "https://www.amazon.co.jp/your-orders/orders", cards: [owned, card(tracking, "https://m.media-amazon.com/images/I/fictional.jpg")] });
+    expect(result.ok).toBe(true);
+    expect(readPurchaseHistory).toHaveBeenCalledWith([{ ...owned, imgs: [] }], "https://www.amazon.co.jp/your-orders/orders", "", 150);
+  });
+
   it("still requires authentication before reading or importing history", async () => {
     vi.mocked(requireProfile).mockRejectedValueOnce(new Error("authentication required"));
     await expect(importBulkAction({ page: "https://shop.example/orders", cards: [] })).rejects.toThrow("authentication required");
