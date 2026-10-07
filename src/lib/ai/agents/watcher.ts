@@ -9,6 +9,10 @@ import { listNotifications, listVisibleWishes, notify, updateWish } from "../../
 import { getUser } from "../../data/users";
 import { shopSearchUrl } from "../../shops";
 import type { UserProfile } from "../../types";
+import type { VisibleWish } from "../../access";
+
+/** R18 titles never reach the model (the owner's AI-use consent does not cover a watcher), only the shop. */
+const modelTitle = (w: VisibleWish) => (w.isAdult ? `成人向け作品（${w.shopLabel}）` : w.title);
 
 // Separate budgets so new-release news can never crowd out a verified price drop.
 const MAX_PRICE_NOTIFICATIONS = 3;
@@ -44,7 +48,9 @@ interface PatrolStats {
 function buildAgent(user: UserProfile, stats: PatrolStats) {
   const { uid, tasteTags } = user;
   // Only wishes for items the user may still see: hidden or deleted items are never fetched or announced.
-  const wishes = () => listVisibleWishes(uid, user);
+  // Resolved once per patrol; check_price keeps the cached entries' prices current.
+  let cached: Promise<VisibleWish[]> | null = null;
+  const wishes = () => (cached ??= listVisibleWishes(uid, user));
   let searches = 0;
   // Price drops verified by code during this run. The model may only notify about these.
   const verifiedDrops = new Map<string, { previous: number; current: number }>();
@@ -68,7 +74,7 @@ notify_user がエラーを返した通知は送られていない。
         name: "list_watched_wishes",
         description: "ウォッチ中の「ほしい」商品の一覧（前回価格つき）",
         execute: async () => ({
-          wishes: (await wishes()).filter((w) => w.watch).slice(0, 15).map((w) => ({ itemId: w.itemId, title: w.title, shop: w.shopLabel, lastPrice: w.lastPrice })),
+          wishes: (await wishes()).filter((w) => w.watch).slice(0, 15).map((w) => ({ itemId: w.itemId, title: modelTitle(w), shop: w.shopLabel, lastPrice: w.lastPrice })),
         }),
       }),
       new FunctionTool({
@@ -85,7 +91,9 @@ notify_user がエラーを返した通知は送られていない。
             // The drop decision is made in code, not by the model.
             const priceDropped = !!(meta.price && wish.lastPrice && meta.price <= wish.lastPrice * (1 - DROP_THRESHOLD));
             if (priceDropped) verifiedDrops.set(itemId, { previous: wish.lastPrice!, current: meta.price! });
-            return { itemId, title: wish.title, previousPrice: wish.lastPrice, currentPrice: meta.price, priceDropped };
+            const previousPrice = wish.lastPrice;
+            if (meta.price) wish.lastPrice = meta.price;
+            return { itemId, title: modelTitle(wish), previousPrice, currentPrice: meta.price, priceDropped };
           } catch {
             return { itemId, error: "商品ページを取得できませんでした" };
           }

@@ -4,6 +4,7 @@ import { db } from "../firebase-admin";
 import { resolveWishes } from "../access";
 import { getItems } from "./items";
 import type { Item, Notification, UserProfile, Wish } from "../types";
+import type { VisibleWish } from "../access";
 
 const followId = (follower: string, followee: string) => `${follower}_${followee}`;
 
@@ -77,9 +78,9 @@ export async function listWishes(uid: string): Promise<Wish[]> {
 
 /**
  * The user's wishes that they may still see, refreshed from the live items. Wishes whose item was
- * deleted (or whose owner left) are removed here as well, so stale copies never linger.
+ * deleted or withdrawn from them (including the owner leaving) are removed here, so stale copies never linger.
  */
-export async function listVisibleWishes(uid: string, profile: UserProfile | null): Promise<Wish[]> {
+export async function listVisibleWishes(uid: string, profile: UserProfile | null): Promise<VisibleWish[]> {
   const wishes = await listWishes(uid);
   const items = new Map((await getItems(wishes.map((w) => w.itemId))).map((i) => [i.id, i]));
   const followersOnlyOwners = [...new Set([...items.values()].filter((i) => i.visibility === "followers").map((i) => i.ownerUid))];

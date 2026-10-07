@@ -3,7 +3,7 @@ import { lookup } from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
 import net from "node:net";
-import type { Readable } from "node:stream";
+import { pipeline, type Readable, type Transform } from "node:stream";
 import zlib from "node:zlib";
 
 const MAX_BYTES = 1_500_000;
@@ -98,10 +98,11 @@ function request(t: Target, headers: Record<string, string>, signal: AbortSignal
 
 function decoded(res: http.IncomingMessage): Readable {
   const enc = String(res.headers["content-encoding"] ?? "").toLowerCase();
-  if (enc === "gzip" || enc === "x-gzip") return res.pipe(zlib.createGunzip());
-  if (enc === "deflate") return res.pipe(zlib.createInflate());
-  if (enc === "br") return res.pipe(zlib.createBrotliDecompress());
-  return res;
+  const inflate: Transform | null =
+    enc === "gzip" || enc === "x-gzip" ? zlib.createGunzip() : enc === "deflate" ? zlib.createInflate() : enc === "br" ? zlib.createBrotliDecompress() : null;
+  if (!inflate) return res;
+  // pipeline (unlike pipe) forwards errors and aborts, so a stalled body still hits the timeout.
+  return pipeline(res, inflate, () => {});
 }
 
 /** Read at most MAX_BYTES of the (decompressed) body. */

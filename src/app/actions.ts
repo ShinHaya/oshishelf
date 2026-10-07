@@ -112,7 +112,7 @@ export async function toggleWishAction(itemId: string, wished: boolean): Promise
       return false;
     }
     const item = await getItem(z.string().min(1).parse(itemId));
-    const following = item ? await isFollowing(uid, item.ownerUid) : false;
+    const following = item?.visibility === "followers" ? await isFollowing(uid, item.ownerUid) : false;
     // Same rule as viewing the item: no drafts, restricted, unfinished (members-only link) or unconsented R18 items.
     if (!item || !canWishItem(item, { viewerUid: uid, viewerProfile: profile, following })) throw new Error("商品が見つかりません");
     await addWish(uid, item);

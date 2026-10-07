@@ -20,7 +20,7 @@ const httpsRequest = vi.mocked(https.request);
 interface FakeResponse {
   status?: number;
   headers?: Record<string, string>;
-  body?: string | Buffer;
+  body?: string | Buffer | Readable;
 }
 
 type Lookup = (host: string, opts: { all?: boolean }, cb: (err: Error | null, address: unknown, family?: number) => void) => void;
@@ -35,7 +35,8 @@ function serve(...responses: FakeResponse[]) {
       opts.lookup(url.hostname, { all: true }, (_err, addrs) => {
         connected.push((addrs as { address: string }[])[0].address);
         const r = responses.shift() ?? {};
-        const res = Object.assign(Readable.from(r.body === undefined ? [] : [Buffer.from(r.body)]), {
+        const stream = r.body instanceof Readable ? r.body : Readable.from(r.body === undefined ? [] : [Buffer.from(r.body)]);
+        const res = Object.assign(stream, {
           statusCode: r.status ?? 200,
           headers: r.headers ?? {},
         });
@@ -139,6 +140,16 @@ describe("外部URLの取得境界", () => {
     serve({ headers: { "content-encoding": "gzip" }, body: gzipSync("商品ページ") });
     await expect(safeFetchText("https://example.com/")).resolves.toMatchObject({ text: "商品ページ" });
   });
+
+  it("圧縮された本文が途中で失敗したら、待ち続けずにエラーにする", async () => {
+    dns.mockResolvedValue([{ address: "93.184.216.34", family: 4 }] as never);
+    const partial = gzipSync("商品ページ".repeat(1000)).subarray(0, 40);
+    const body = new Readable({ read() {} });
+    body.push(partial);
+    setTimeout(() => body.destroy(new Error("aborted")), 10);
+    serve({ headers: { "content-encoding": "gzip" }, body });
+    await expect(safeFetchText("https://example.com/")).rejects.toThrow();
+  }, 2000);
 
   it("本文は上限サイズで打ち切る", async () => {
     dns.mockResolvedValue([{ address: "93.184.216.34", family: 4 }] as never);
