@@ -101,12 +101,20 @@ Next.js 16 (App Router, Server Actions) / TypeScript / Tailwind CSS v4 / Agent D
 
 ## ローカル開発
 
+Node.js 22とpnpmを使います。
+セットアップの注意点、テストの追加方針、レビュー手順は [開発ガイド](docs/development.md) に記載しています。
+AI向けの作業ルールは [AGENTS.md](AGENTS.md) を参照してください。
+
 ```bash
-pnpm install
+corepack enable
+pnpm install --frozen-lockfile
 cp .env.example .env.local        # GOOGLE_CLOUD_PROJECT などを設定
 gcloud auth application-default login
 pnpm dev
 ```
+
+PRを作る前に `pnpm check`（Lint、型検査、回帰テスト）と `pnpm build` を実行します。
+同じ検査をGitHub Actionsでも実行します。
 
 - Firestore のインデックスとルール: `scripts/setup-firestore.sh`
 - デモデータ投入: `BOOKS_API_KEY=... node scripts/seed.mts`
