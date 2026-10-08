@@ -168,7 +168,7 @@ export async function deleteItems(ownerUid: string, ids: string[]): Promise<stri
   return owned.map((i) => i.id);
 }
 
-export async function updateItem(ownerUid: string, id: string, patch: Partial<Pick<Item, "visibility" | "note" | "title" | "category" | "isAdult" | "shelfCategory">>) {
+export async function updateItem(ownerUid: string, id: string, patch: Partial<Pick<Item, "visibility" | "note" | "title" | "category" | "isAdult">>) {
   const ref = itemsCol().doc(id);
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
@@ -212,4 +212,26 @@ export async function setItemsVisibility(ownerUid: string, ids: string[], visibi
     await batch.commit();
   }
   return owned.length;
+}
+
+/** Put the given items owned by `ownerUid` into one shelf category (`null` removes it). */
+export async function setItemsShelfCategory(ownerUid: string, ids: string[], shelfCategory: string | null): Promise<number> {
+  const owned = (await getItems(ids)).filter((i) => i.ownerUid === ownerUid);
+  for (let i = 0; i < owned.length; i += 400) {
+    const batch = db.batch();
+    owned.slice(i, i + 400).forEach((it) => batch.update(itemsCol().doc(it.id), { shelfCategory }));
+    await batch.commit();
+  }
+  return owned.length;
+}
+
+/** Remove a deleted shelf category from every item of its owner. */
+export async function clearShelfCategory(ownerUid: string, name: string): Promise<number> {
+  const snap = await itemsCol().where("ownerUid", "==", ownerUid).where("shelfCategory", "==", name).select().get();
+  for (let i = 0; i < snap.docs.length; i += 400) {
+    const batch = db.batch();
+    snap.docs.slice(i, i + 400).forEach((d) => batch.update(d.ref, { shelfCategory: null }));
+    await batch.commit();
+  }
+  return snap.docs.length;
 }

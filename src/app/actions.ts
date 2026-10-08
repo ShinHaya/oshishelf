@@ -6,8 +6,8 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getViewer, requireProfile, SESSION_COOKIE } from "@/lib/session";
 import { deleteAccount } from "@/lib/data/account";
-import { createUser, getUser, getUserByHandle, updateUser } from "@/lib/data/users";
-import { deleteItems, getItem, publishItems, setItemProductInfo, setItemsVisibility, updateItem } from "@/lib/data/items";
+import { addShelfCategory, createUser, getUser, getUserByHandle, removeShelfCategory, updateUser } from "@/lib/data/users";
+import { clearShelfCategory, deleteItems, getItem, publishItems, setItemProductInfo, setItemsShelfCategory, setItemsVisibility, updateItem } from "@/lib/data/items";
 import { deleteReview, setReaction, setReview } from "@/lib/data/reviews";
 import { addWish, consumeQuota, deleteWishesForItems, follow, isFollowing, markAllRead, notify, removeWish, unfollow } from "@/lib/data/social";
 import { extractFromScreenshot, extractFromText, importCandidates, MAX_ITEMS_PER_IMPORT, type ImportReport } from "@/lib/ai/agents/importer";
@@ -275,13 +275,42 @@ export async function updateItemsVisibilityAction(ids: string[], v: Visibility):
   });
 }
 
-/** A shelf category is owner-entered text, independent of the product's AI classification. */
-export async function updateItemShelfCategoryAction(id: string, rawCategory: string): Promise<ActionResult> {
+// Shelf categories are owner-entered text, independent of the product's AI classification.
+const shelfCategoryName = z.string().trim().min(1, "カテゴリー名を入力してください").max(40, "カテゴリー名は40文字以内にしてください");
+
+export async function createShelfCategoryAction(rawName: string): Promise<ActionResult<string>> {
   const { uid } = await requireProfile();
   return attempt(async () => {
-    const category = z.string().trim().max(40, "カテゴリー名は40文字以内にしてください").parse(rawCategory);
-    await updateItem(uid, z.string().min(1).max(200).regex(/^[^/]+$/).parse(id), { shelfCategory: category || null });
+    const name = shelfCategoryName.parse(rawName);
+    await addShelfCategory(uid, name);
+    revalidatePath("/shelf");
+    return name;
+  });
+}
+
+/** Deletes the category and takes it off every item; the items themselves stay on the shelf. */
+export async function deleteShelfCategoryAction(rawName: string): Promise<ActionResult<number>> {
+  const { uid } = await requireProfile();
+  return attempt(async () => {
+    const name = shelfCategoryName.parse(rawName);
+    const n = await clearShelfCategory(uid, name);
+    await removeShelfCategory(uid, name);
     revalidatePath("/", "layout");
+    return n;
+  });
+}
+
+/** Puts the selected items into one category; `null` takes them out of their category. */
+export async function assignShelfCategoryAction(ids: string[], rawName: string | null): Promise<ActionResult<number>> {
+  const { uid } = await requireProfile();
+  return attempt(async () => {
+    const parsedIds = z.array(z.string().min(1).max(200).regex(/^[^/]+$/)).max(500).parse(ids);
+    const name = rawName === null ? null : shelfCategoryName.parse(rawName);
+    // Registering is idempotent; it also lists categories set before they were managed in one place.
+    if (name) await addShelfCategory(uid, name);
+    const n = await setItemsShelfCategory(uid, parsedIds, name);
+    revalidatePath("/", "layout");
+    return n;
   });
 }
 
