@@ -83,6 +83,28 @@ export async function updateUser(uid: string, patch: Partial<Omit<UserProfile, "
   await usersCol().doc(uid).update(patch);
 }
 
+/** Owner-defined shelf category names, kept apart from the profile so they never reach other viewers' pages. */
+export const MAX_SHELF_CATEGORIES = 50;
+
+export async function getShelfCategories(uid: string): Promise<string[]> {
+  const snap = await usersCol().doc(uid).get();
+  return (snap.get("shelfCategories") as string[] | undefined) ?? [];
+}
+
+export async function addShelfCategory(uid: string, name: string) {
+  const ref = usersCol().doc(uid);
+  await db.runTransaction(async (tx) => {
+    const current = ((await tx.get(ref)).get("shelfCategories") as string[] | undefined) ?? [];
+    if (current.includes(name)) return;
+    if (current.length >= MAX_SHELF_CATEGORIES) throw new Error(`カテゴリーは${MAX_SHELF_CATEGORIES}個までです`);
+    tx.update(ref, { shelfCategories: FieldValue.arrayUnion(name) });
+  });
+}
+
+export async function removeShelfCategory(uid: string, name: string) {
+  await usersCol().doc(uid).update({ shelfCategories: FieldValue.arrayRemove(name) });
+}
+
 export async function setTasteVector(uid: string, vector: number[], tags: string[]) {
   await usersCol().doc(uid).update({ tasteVector: FieldValue.vector(vector), tasteTags: tags, tasteUpdatedAt: Date.now() });
 }

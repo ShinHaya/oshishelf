@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { deleteItemsAction, fixItemTitleAction, publishDraftsAction, updateItemsVisibilityAction, updateItemVisibilityAction, updateItemShelfCategoryAction } from "@/app/actions";
+import { deleteItemsAction, fixItemTitleAction, publishDraftsAction, updateItemsVisibilityAction, updateItemVisibilityAction, assignShelfCategoryAction, createShelfCategoryAction, deleteShelfCategoryAction } from "@/app/actions";
 import { ReviewEditor } from "./review";
 import { CATEGORY_LABELS, VISIBILITY_LABELS, type Item, type Visibility } from "@/lib/types";
 import { lacksProductInfo } from "@/lib/shops";
@@ -18,7 +18,7 @@ const GUARD_STYLE = {
   block: "border-danger",
 } as const;
 
-export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "draft" | "published"; canAdult: boolean }) {
+export function ItemManager({ items, mode, canAdult, shelfCategories = [] }: { items: Item[]; mode: "draft" | "published"; canAdult: boolean; shelfCategories?: string[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
@@ -31,7 +31,7 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
     Object.fromEntries(items.map((i) => [i.id, i.guard && i.guard.level !== "ok" && mode === "draft" ? i.guard.suggestedVisibility : i.visibility])),
   );
 
-  const categories = [...new Set(items.map((i) => i.shelfCategory).filter((c): c is string => !!c))].sort();
+  const categories = shelfCategories;
   const [categoryFilter, setCategoryFilter] = useState("");
   const activeCategoryFilter = categories.includes(categoryFilter) ? categoryFilter : "";
   const flaggedCount = items.filter(isFlagged).length;
@@ -70,6 +70,15 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
     });
   };
 
+  const [bulkCategory, setBulkCategory] = useState("");
+  const activeBulkCategory = categories.includes(bulkCategory) ? bulkCategory : (categories[0] ?? "");
+  const applyBulkCategory = (name: string | null) =>
+    start(async () => {
+      const r = await assignShelfCategoryAction([...selected], name);
+      setMessage(r.ok ? (name ? `${r.data} 件をカテゴリー「${name}」に追加しました` : `${r.data} 件をカテゴリーから外しました`) : r.error);
+      router.refresh();
+    });
+
   const remove = () => {
     if (!confirm(`${selected.size} 件を削除します。よろしいですか？`)) return;
     start(async () => {
@@ -89,7 +98,8 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
 
   return (
     <div className="space-y-3">
-      {mode === "published" && (
+      {mode === "published" && <ShelfCategoryManager categories={categories} items={items} onMessage={setMessage} />}
+      {mode === "published" && categories.length > 0 && (
         <label className="flex items-center gap-2 text-sm">
           カテゴリーで絞り込み
           <select className="input !w-auto" value={activeCategoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
@@ -98,9 +108,6 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
           </select>
         </label>
       )}
-      <datalist id="shelf-category-options">
-        {categories.map((c) => <option key={c} value={c} />)}
-      </datalist>
       <div className="card sticky top-16 z-10 flex flex-wrap items-center gap-2 p-3">
         <label className="flex items-center gap-1.5 text-sm">
           <input type="checkbox" checked={selected.size === shown.length && shown.length > 0} onChange={(e) => setSelected(new Set(e.target.checked ? shown.map((i) => i.id) : []))} />
@@ -133,6 +140,19 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
             選択した作品をこの公開範囲に
           </button>
         </div>
+        {mode === "published" && categories.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <select className="input !w-auto !py-1 text-xs" value={activeBulkCategory} onChange={(e) => setBulkCategory(e.target.value)} aria-label="追加先のカテゴリー">
+              {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <button type="button" className="btn-ghost !px-3 !py-1 !text-xs" disabled={pending || selected.size === 0} onClick={() => applyBulkCategory(activeBulkCategory)}>
+              選択した作品をこのカテゴリーに
+            </button>
+            <button type="button" className="btn-ghost !px-3 !py-1 !text-xs" disabled={pending || selected.size === 0} onClick={() => applyBulkCategory(null)}>
+              カテゴリーから外す
+            </button>
+          </div>
+        )}
         <div className="ml-auto flex gap-2">
           <button type="button" className="btn-ghost !text-danger" disabled={pending || selected.size === 0} onClick={remove}>
             削除
@@ -157,6 +177,7 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
               <div className="mt-1 flex flex-wrap gap-1">
                 <span className="chip">{item.shopLabel}</span>
                 <span className="chip">{CATEGORY_LABELS[item.category]}</span>
+                {mode === "published" && item.shelfCategory && <span className="chip">📁 {item.shelfCategory}</span>}
                 {item.isAdult && <span className="chip !bg-danger !text-white">R18</span>}
                 {item.urlIsSearch && <span className="chip">リンク：ショップ検索</span>}
                 {item.price != null && <span className="chip">¥{item.price.toLocaleString()}</span>}
@@ -165,7 +186,6 @@ export function ItemManager({ items, mode, canAdult }: { items: Item[]; mode: "d
                 <p className={`mt-1.5 text-xs ${item.guard.level === "block" ? "text-danger" : "text-warn"}`}>🛡️ {item.guard.reasons.join(" / ")}</p>
               )}
               {lacksProductInfo(item) && <TitleFixForm itemId={item.id} />}
-              {mode === "published" && <ShelfCategoryForm key={item.shelfCategory ?? ""} item={item} />}
               {mode === "published" && <ReviewEditor itemId={item.id} review={item.review} />}
             </div>
             <select
@@ -221,27 +241,57 @@ function TitleFixForm({ itemId }: { itemId: string }) {
   );
 }
 
-function ShelfCategoryForm({ item }: { item: Item }) {
+/** The one place where shelf categories are created and deleted; items are assigned from the selection bar. */
+function ShelfCategoryManager({ categories, items, onMessage }: { categories: string[]; items: Item[]; onMessage: (m: string) => void }) {
   const router = useRouter();
-  const [category, setCategory] = useState(item.shelfCategory ?? "");
+  const [name, setName] = useState("");
   const [pending, start] = useTransition();
-  const [message, setMessage] = useState<string | null>(null);
+  const create = () =>
+    start(async () => {
+      const r = await createShelfCategoryAction(name);
+      onMessage(r.ok ? `カテゴリー「${r.data}」を作成しました。作品を選んで追加できます` : r.error);
+      if (!r.ok) return;
+      setName("");
+      router.refresh();
+    });
+  const remove = (c: string) => {
+    if (!confirm(`カテゴリー「${c}」を削除します。作品は棚に残り、このカテゴリーから外れます。よろしいですか？`)) return;
+    start(async () => {
+      const r = await deleteShelfCategoryAction(c);
+      onMessage(r.ok ? `カテゴリー「${c}」を削除しました` : r.error);
+      router.refresh();
+    });
+  };
   return (
-    <form className="mt-2 flex flex-wrap items-center gap-1.5" onSubmit={(e) => {
-      e.preventDefault();
-      start(async () => {
-        const r = await updateItemShelfCategoryAction(item.id, category);
-        setMessage(r.ok ? "カテゴリーを保存しました" : r.error);
-        if (r.ok) router.refresh();
-      });
-    }}>
-      <label className="text-xs">
-        独自カテゴリー
-        <input className="input mt-1 !py-1 text-xs" value={category} onChange={(e) => setCategory(e.target.value)}
-          list="shelf-category-options" maxLength={40} placeholder="例：お気に入り・積読（空欄で解除）" disabled={pending} />
-      </label>
-      <button type="submit" className="btn-ghost !px-3 !py-1 !text-xs" disabled={pending}>{pending ? "保存中…" : "保存"}</button>
-      {message && <p role="status" className="w-full text-xs">{message}</p>}
-    </form>
+    <section className="card space-y-2 p-3">
+      <h2 className="text-sm font-bold">独自カテゴリー</h2>
+      {categories.length > 0 ? (
+        <ul className="flex flex-wrap gap-1.5">
+          {categories.map((c) => (
+            <li key={c} className="chip flex items-center gap-1">
+              {c} <span className="text-ink-2">{items.filter((i) => i.shelfCategory === c).length}</span>
+              <button type="button" className="ml-0.5 text-ink-2 hover:text-danger" disabled={pending} onClick={() => remove(c)} aria-label={`カテゴリー「${c}」を削除`}>
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-xs text-ink-2">カテゴリーを作成すると、チェックを入れた作品をまとめて追加できます。</p>
+      )}
+      <form
+        className="flex flex-wrap items-center gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          create();
+        }}
+      >
+        <input className="input !w-auto min-w-0 flex-1 !py-1 text-xs" value={name} onChange={(e) => setName(e.target.value)}
+          maxLength={40} placeholder="例：お気に入り・積読" aria-label="新しいカテゴリー名" disabled={pending} />
+        <button type="submit" className="btn-ghost !px-3 !py-1 !text-xs" disabled={pending || !name.trim()}>
+          {pending ? "作成中…" : "作成"}
+        </button>
+      </form>
+    </section>
   );
 }
