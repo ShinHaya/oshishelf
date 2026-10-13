@@ -74,8 +74,8 @@
   <rect x="790" y="264" width="226" height="100" rx="10" class="agent"/>
   <text x="806" y="292" class="t" font-weight="700">🛡️ プライバシーガード</text>
   <text x="806" y="314" class="s">健康・金融・ギフト・個人情報</text>
-  <text x="806" y="334" class="s">R18 を検出 → 公開範囲を提案</text>
-  <text x="806" y="354" class="s">R18タイトルはAIに送らない</text>
+  <text x="806" y="334" class="s">年齢制限を検出 → 公開範囲を提案</text>
+  <text x="806" y="354" class="s">対象作品名はAIに送らない</text>
 
   <!-- ADK agents -->
   <text x="436" y="414" class="t" font-weight="700">Agent Development Kit（@google/adk）エージェント</text>
@@ -147,7 +147,7 @@
   <!-- Shops -->
   <rect x="1100" y="780" width="436" height="110" rx="16" fill="#fff" stroke="#c89b6d" stroke-width="2"/>
   <text x="1122" y="814" class="h">ショップ（外部）</text>
-  <text x="1122" y="842" class="t">FANZA / DLsite / Amazon / Steam / 楽天 / BOOTH …</text>
+  <text x="1122" y="842" class="t">楽天ブックス / Amazon / Steam / BOOTH …</text>
   <text x="1122" y="866" class="s">商品ページ取得（公開ページのみ） / 購入リンク先</text>
 
   <!-- ===== Arrows ===== -->
