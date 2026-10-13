@@ -9,7 +9,7 @@
 第5回 Agentic AI Hackathon with Google Cloud 応募作品。
 
 - デプロイ URL: https://oshi-dana.com
-- デモ動画: [約3分の字幕付きデモ](https://youtu.be/21RilDbxlDw)（YouTube公開）
+- デモ動画: [約3分の字幕付きデモ](https://youtu.be/o4LUiTS3IsU)（YouTube公開）
 - ログイン: Google アカウント、またはメールアドレス
 - 審査用アカウント: ログイン画面の「デモアカウントでログイン」ボタン（`demo@oshishelf.app` / `oshishelf-demo-2026`）
 
