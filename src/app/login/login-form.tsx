@@ -15,6 +15,9 @@ import {
 } from "firebase/auth";
 import { clientAuth } from "@/lib/firebase-client";
 
+// Public sample account for the hackathon; uses the normal Firebase sign-in and session checks.
+const DEMO = { email: "demo@oshishelf.app", password: "oshishelf-demo-2026" };
+
 type Mode = "login" | "signup" | "reset";
 
 const ERRORS: Record<string, string> = {
@@ -279,6 +282,15 @@ export function LoginForm({ initialMode, notice: initialNotice }: { initialMode:
         </p>
       )}
 
+      {mode !== "reset" && (
+        <div className="mt-6 rounded-xl bg-accent-soft p-4 text-sm">
+          <p className="font-bold">審査員・お試しの方へ</p>
+          <p className="mt-1 text-ink-2">サンプルデータ入りの共有アカウントです。実際の購入履歴や個人情報は入力しないでください。</p>
+          <button type="button" className="btn-primary mt-3 w-full" disabled={busy} onClick={() => run(() => signInWithEmailAndPassword(clientAuth, DEMO.email, DEMO.password))}>
+            デモアカウントでログイン
+          </button>
+        </div>
+      )}
     </div>
   );
 }
