@@ -93,7 +93,7 @@ async function GuestFeed({ deleted }: { deleted: boolean }) {
           あなたの<span className="text-accent">自己紹介</span>になる。
         </h1>
         <p className="mx-auto mt-3 max-w-xl text-sm text-ink-2">
-          FANZA・DLsite・Amazon など、どこで買った作品も「棚」に並べて公開。AIエージェントがあなたの嗜好を読み解き、同じ趣味の仲間とつなげます。
+          楽天ブックス、Amazon など、どこで買った作品も「棚」に並べて公開。AIエージェントがあなたの嗜好を読み解き、同じ趣味の仲間とつなげます。
         </p>
         <div className="mt-5 flex justify-center gap-3">
           <Link href="/login?mode=signup" className="btn-primary !px-6 !py-3 !text-base">

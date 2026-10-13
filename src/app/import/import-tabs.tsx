@@ -77,7 +77,7 @@ export function ImportTabs({ bookmarklet }: { bookmarklet: string }) {
                   <BookmarkletLink href={bookmarklet} />
                 </div>
               </li>
-              <li>FANZA・DLsite・Amazon などの「購入履歴」「ライブラリ」ページを開く（ログインしたまま）</li>
+              <li>楽天ブックス、Amazon などの「購入履歴」「ライブラリ」ページを開く（ログインしたまま）</li>
               <li>ブックマークをクリック → ページを自動でスクロール・次のページもたどって、取り込みエージェントが購入した商品だけを読み取ります</li>
             </ol>
             <p className="mt-2 text-xs text-ink-2">登録後は実行時に最新版を読み込みます。すでに登録している方は、最初の一度だけブックマークを更新してください。</p>
@@ -102,7 +102,7 @@ export function ImportTabs({ bookmarklet }: { bookmarklet: string }) {
       {tab === "screenshot" && (
         <form action={shotAction} className="space-y-3">
           <p className="text-sm text-ink-2">購入履歴画面のスクリーンショット（最大5枚）から、Geminiが商品名を読み取ります。氏名・住所などは抽出しません。</p>
-          <p className="text-xs text-warn">⚠️ 成人向けショップ（FANZA・DLsite など）の画面には使わず、ブックマークレットで取り込んでください。ブックマークレットなら作品名や画像をAIに送らずに取り込めます。</p>
+          <p className="text-xs text-warn">⚠️ 年齢制限のある商品を扱うショップの画面には使わず、ブックマークレットで取り込んでください。ブックマークレットなら作品名や画像をAIに送らずに取り込めます。</p>
           <input type="file" name="images" accept="image/png,image/jpeg,image/webp" multiple required className="block text-sm" />
           <button className="btn-primary" disabled={shotPending}>
             {shotPending ? "AIが読み取り中…" : "読み取って取り込む"}
@@ -114,7 +114,7 @@ export function ImportTabs({ bookmarklet }: { bookmarklet: string }) {
       {tab === "url" && (
         <form action={urlAction} className="space-y-3">
           <p className="text-sm text-ink-2">商品ページのURLを貼ってください（改行区切りで最大30件）。どのショップでもOKです。</p>
-          <textarea name="urls" className="input min-h-28" placeholder={"https://www.amazon.co.jp/dp/...\nhttps://book.dmm.com/product/..."} required />
+          <textarea name="urls" className="input min-h-28" placeholder={"https://www.amazon.co.jp/dp/...\nhttps://books.rakuten.co.jp/rb/..."} required />
           <button className="btn-primary" disabled={urlPending}>
             {urlPending ? "取得中…" : "取り込む"}
           </button>

@@ -174,7 +174,7 @@ export async function importPasteAction(_: unknown, form: FormData): Promise<Act
     // A bare product URL is not proof of purchase; preserve the page context for AI.
     const urls = text.match(/https?:\/\/[^\s"'<>]+/g) ?? [];
     if (ADULT_SHOP_TEXT.test(text) || urls.some((url) => detectShop(url).adult)) {
-      throw new Error("成人向けショップ（FANZA・DLsite など）の購入履歴は、作品名をAIに送らないブックマークレットで取り込んでください");
+      throw new Error("年齢制限のある商品を扱うショップの購入履歴は、作品名をAIに送らないブックマークレットで取り込んでください");
     }
     const candidates = await extractFromText(text);
     const report = await importCandidates(uid, candidates, "paste", profile.defaultVisibility);
