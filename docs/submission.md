@@ -7,7 +7,8 @@
   - 審査用アカウント: ログイン画面の「デモアカウントでログイン」ボタン（`demo@oshishelf.app` / `oshishelf-demo-2026`）
 - [ ] **プロジェクト説明文**: 下記
 - [ ] **システムアーキテクチャ図の画像**: `docs/architecture.png`
-- [ ] **デモ動画 URL**（YouTube・公開）: 台本は `docs/demo-video-script.md`
+- [ ] **デモ動画 URL**: https://youtu.be/21RilDbxlDw （YouTube公開済み、約3分、日本語字幕付き。提出フォームへの登録は未確認）
+  - [確定台本](demo-video-script.md) / [撮影と公開の記録](demo-video-production.md)
 - [ ] **Zenn 記事 URL**（任意・カテゴリ「Idea」で公開）: 下書きは `docs/zenn-article.md`
 
 ## 審査用の操作手順
