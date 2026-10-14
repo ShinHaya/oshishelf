@@ -15,7 +15,7 @@ export function CompatPanel({ targetUid, targetName, initial }: { targetUid: str
       setError(null);
       const r = await analyzeCompatAction(targetUid, force);
       if (r.ok) setData(r.data);
-      else setError(r.error);
+      else { setData(null); setError(r.error); }
     });
 
   return (

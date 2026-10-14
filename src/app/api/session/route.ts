@@ -4,14 +4,10 @@ import { SESSION_COOKIE, SESSION_MAX_AGE_MS } from "@/lib/session";
 
 /** Exchange a fresh Firebase ID token for an httpOnly session cookie. */
 export async function POST(req: NextRequest) {
-  // Same-origin only (CSRF protection for the cookie-setting endpoint).
-  const origin = req.headers.get("origin");
-  const allowed = new Set([req.headers.get("host"), process.env.APP_ORIGIN && new URL(process.env.APP_ORIGIN).host]);
-  if (origin && !allowed.has(new URL(origin).host)) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
-  const { idToken } = (await req.json().catch(() => ({}))) as { idToken?: string };
-  if (!idToken) return NextResponse.json({ error: "missing token" }, { status: 400 });
+  if (!sameOrigin(req)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const body = await req.json().catch(() => null);
+  const idToken = body && typeof body === "object" ? body.idToken : null;
+  if (typeof idToken !== "string" || !idToken) return NextResponse.json({ error: "missing token" }, { status: 400 });
   try {
     const decoded = await adminAuth.verifyIdToken(idToken);
     // Require a recent sign-in to mint a session.
@@ -36,7 +32,33 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function DELETE() {
+/** Validate the entire origin, including scheme and port; malformed/missing origins are rejected. */
+function sameOrigin(req: NextRequest): boolean {
+  try {
+    const origin = req.headers.get("origin");
+    const allowed = new URL(process.env.APP_ORIGIN ?? req.url).origin;
+    return !!origin && new URL(origin).origin === origin && origin === allowed;
+  } catch {
+    return false;
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  if (!sameOrigin(req)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const token = req.cookies.get(SESSION_COOKIE)?.value;
+  if (token) {
+    try {
+      const decoded = await adminAuth.verifySessionCookie(token, true);
+      // Firebase revocation affects all sessions for this account, including other browsers.
+      await adminAuth.revokeRefreshTokens(decoded.uid);
+    } catch (e) {
+      const code = e && typeof e === "object" && "code" in e ? e.code : null;
+      if (!["auth/session-cookie-expired", "auth/session-cookie-revoked", "auth/invalid-session-cookie", "auth/argument-error", "auth/user-disabled", "auth/user-not-found"].includes(String(code))) {
+        console.error("logout", e);
+        return NextResponse.json({ error: "ログアウトに失敗しました。もう一度お試しください。" }, { status: 503 });
+      }
+    }
+  }
   const res = NextResponse.json({ ok: true });
   res.cookies.delete(SESSION_COOKIE);
   return res;

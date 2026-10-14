@@ -1,7 +1,8 @@
 import "server-only";
+import { UserError } from "../../user-error";
 import { Type, type Schema } from "@google/genai";
 import { generateJson, LITE_MODEL } from "../gemini";
-import { canonicalizeUrl, detectShop, looksLikeProductUrl, publicProductUrl, shopSearchUrl } from "../../shops";
+import { canonicalizeUrl, isProductUrl, detectShop, looksLikeProductUrl, publicProductUrl, shopSearchUrl } from "../../shops";
 import { fetchProductMeta, readProductWithGemini } from "../../product-meta";
 import { consumeQuota } from "../../data/social";
 import { createDrafts, type NewItem } from "../../data/items";
@@ -150,6 +151,7 @@ export interface ImportReport {
  */
 export async function importCandidates(uid: string, candidates: ImportCandidate[], source: ImportSource, defaultVisibility: Visibility): Promise<ImportReport> {
   const list = candidates.slice(0, MAX_ITEMS_PER_IMPORT);
+  if (list.some((c) => !isProductUrl(c.url))) throw new UserError("商品URLはHTTP(S)で指定してください");
   if (!list.length) return { created: 0, skipped: 0, flagged: 0 };
   await consumeQuota(uid, "import", list.length);
   let fallbackAttempts = 0;

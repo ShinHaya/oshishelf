@@ -16,6 +16,30 @@ function host(u: URL) {
   return u.hostname.replace(/^www\./, "");
 }
 
+/** Match a domain or its subdomains, never a lookalike suffix. */
+export function isShopHost(hostname: string, domain: string): boolean {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
+/** Stored product links must be absolute HTTP(S) URLs without embedded credentials. */
+export function isProductUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return (u.protocol === "https:" || u.protocol === "http:") && !!u.hostname && !u.username && !u.password;
+  } catch {
+    return false;
+  }
+}
+
+export function isKnownShopUrl(raw: string): boolean {
+  if (!isProductUrl(raw)) return false;
+  const u = new URL(raw);
+  if (u.port) return false;
+  const h = host(u);
+  return ["dmm.co.jp", "dmm.com", "dlsite.com", "amazon.co.jp", "amazon.com", "rakuten.co.jp", "booth.pm", "toranoana.jp", "bookwalker.jp"].some((d) => isShopHost(h, d)) ||
+    ["amzn.asia", "amzn.to", "melonbooks.co.jp", "store.steampowered.com"].includes(h);
+}
+
 const DMM_BOOK_NON_PRODUCT = new Set(["volumes", "tachiyomi", "review", "reviews", "series", "author"]);
 
 /**
@@ -56,7 +80,7 @@ export function detectShop(rawUrl: string): ShopInfo {
   const h = host(u);
   const path = u.pathname;
 
-  if (h.endsWith("dmm.co.jp")) {
+  if (isShopHost(h, "dmm.co.jp")) {
     const cid = dmmContentId(u);
     const categoryHint: Category | null = h.startsWith("video.")
       ? "video"
@@ -71,12 +95,12 @@ export function detectShop(rawUrl: string): ShopInfo {
             : null;
     return { shop: "fanza", label: "FANZA", adult: true, productKey: cid ? `fanza:${cid}` : null, categoryHint };
   }
-  if (h.endsWith("dmm.com")) {
+  if (isShopHost(h, "dmm.com")) {
     const id = dmmContentId(u);
     const categoryHint: Category | null = h.startsWith("book.") ? "comic" : h.startsWith("games.") ? "game" : path.includes("/digital/") ? "video" : null;
     return { shop: "dmm", label: "DMM", adult: false, productKey: id ? `dmm:${id}` : null, categoryHint };
   }
-  if (h.endsWith("dlsite.com")) {
+  if (isShopHost(h, "dlsite.com")) {
     const floor = path.split("/")[1] ?? "";
     const id = path.match(/product_id\/([A-Z]{2}\d+)/i)?.[1] ?? null;
     return {
@@ -91,11 +115,11 @@ export function detectShop(rawUrl: string): ShopInfo {
     const asin = path.match(/\/(?:dp|gp\/product|gp\/aw\/d|exec\/obidos\/ASIN)\/([A-Z0-9]{10})/i)?.[1] ?? null;
     return { shop: "amazon", label: "Amazon", adult: false, productKey: asin ? `amazon:${asin.toUpperCase()}` : null, categoryHint: null };
   }
-  if (h.endsWith("rakuten.co.jp")) {
+  if (isShopHost(h, "rakuten.co.jp")) {
     const id = path.match(/\/rb\/(\d+)/)?.[1] ?? (h.startsWith("item.") ? path.replace(/\/$/, "") : null);
     return { shop: "rakuten", label: "楽天", adult: false, productKey: id ? `rakuten:${id}` : null, categoryHint: path.includes("/rb/") ? "book" : null };
   }
-  if (h.endsWith("booth.pm")) {
+  if (isShopHost(h, "booth.pm")) {
     const id = path.match(/\/items\/(\d+)/)?.[1] ?? null;
     return { shop: "booth", label: "BOOTH", adult: false, productKey: id ? `booth:${id}` : null, categoryHint: null };
   }
@@ -103,7 +127,7 @@ export function detectShop(rawUrl: string): ShopInfo {
     const id = u.searchParams.get("product_id");
     return { shop: "melonbooks", label: "メロンブックス", adult: false, productKey: id ? `melon:${id}` : null, categoryHint: "comic" };
   }
-  if (h.endsWith("toranoana.jp")) {
+  if (isShopHost(h, "toranoana.jp")) {
     const id = path.match(/\/(\d{6,})/)?.[1] ?? null;
     return { shop: "toranoana", label: "とらのあな", adult: path.includes("/joshi/") ? false : path.includes("/tora_r/") || path.includes("/ec/tora_r"), productKey: id ? `tora:${id}` : null, categoryHint: "comic" };
   }
@@ -111,7 +135,7 @@ export function detectShop(rawUrl: string): ShopInfo {
     const id = path.match(/\/app\/(\d+)/)?.[1] ?? null;
     return { shop: "steam", label: "Steam", adult: false, productKey: id ? `steam:${id}` : null, categoryHint: "game" };
   }
-  if (h.endsWith("bookwalker.jp")) {
+  if (isShopHost(h, "bookwalker.jp")) {
     const id = path.match(/\/(de[0-9a-f-]{20,})/)?.[1] ?? null;
     return { shop: "bookwalker", label: "BOOK☆WALKER", adult: false, productKey: id ? `bw:${id}` : null, categoryHint: "comic" };
   }
@@ -121,20 +145,21 @@ export function detectShop(rawUrl: string): ShopInfo {
 /** Patterns used to recognize product links on purchase-history pages (bookmarklet import). */
 export function looksLikeProductUrl(rawUrl: string): boolean {
   try {
+    if (!isProductUrl(rawUrl)) return false;
     const u = new URL(rawUrl);
     const h = host(u);
     const p = u.pathname;
-    if (h.endsWith("dmm.co.jp") || h.endsWith("dmm.com")) {
+    if (isShopHost(h, "dmm.co.jp") || isShopHost(h, "dmm.com")) {
       if (h.startsWith("book.")) return dmmBookParts(u) !== null;
       if (h.startsWith("video.")) return dmmVideoId(u) !== null;
       return /cid=/.test(p) || /\/detail\//.test(p);
     }
-    if (h.endsWith("dlsite.com")) return /product_id\//.test(p);
-    if (/amazon\.(co\.jp|com)$/.test(h)) return /\/(dp|gp\/product)\/[A-Z0-9]{10}/i.test(p);
-    if (h.endsWith("rakuten.co.jp")) return /\/rb\/\d+/.test(p) || h.startsWith("item.");
-    if (h.endsWith("booth.pm")) return /\/items\/\d+/.test(p);
+    if (isShopHost(h, "dlsite.com")) return /product_id\//.test(p);
+    if (isShopHost(h, "amazon.co.jp") || isShopHost(h, "amazon.com")) return /\/(dp|gp\/product)\/[A-Z0-9]{10}/i.test(p);
+    if (isShopHost(h, "rakuten.co.jp")) return /\/rb\/\d+/.test(p) || h.startsWith("item.");
+    if (isShopHost(h, "booth.pm")) return /\/items\/\d+/.test(p);
     if (h === "store.steampowered.com") return /\/app\/\d+/.test(p);
-    if (h.endsWith("bookwalker.jp")) return /\/de[0-9a-f-]{20,}/.test(p);
+    if (isShopHost(h, "bookwalker.jp")) return /\/de[0-9a-f-]{20,}/.test(p);
     if (h === "melonbooks.co.jp") return u.searchParams.has("product_id");
     return false;
   } catch {
@@ -150,9 +175,9 @@ export function canonicalizeUrl(rawUrl: string): string {
     return `https://www.amazon.co.jp/dp/${info.productKey.split(":")[1]}`;
   }
   // Collapse book sub-pages (e.g. /tachiyomi/?cid=…) onto the product page so they merge with it.
-  const book = dmmBookParts(u);
+  const book = (info.shop === "dmm" || info.shop === "fanza") ? dmmBookParts(u) : null;
   if (book) return `https://${u.hostname}/product/${book.series}/${book.cid}/`;
-  const videoId = dmmVideoId(u);
+  const videoId = (info.shop === "dmm" || info.shop === "fanza") ? dmmVideoId(u) : null;
   if (videoId) return `https://${u.hostname}${u.pathname}?id=${videoId}`;
   for (const key of [...u.searchParams.keys()]) {
     if (/^(utm_|ref|tag|af_id|ch|ch_id|i3_|_encoding|psc|th|qid|sr|keywords|crid|sprefix|dib)/i.test(key)) u.searchParams.delete(key);
@@ -179,7 +204,7 @@ export function publicProductUrl(rawUrl: string): string | null {
   }
   if (/(^|\.)amazon\.(co\.jp|com)$/.test(h)) {
     const asin = u.searchParams.get("asin") ?? u.searchParams.get("ASIN") ?? u.pathname.match(/\/(B0[A-Z0-9]{8})(?:\/|$)/i)?.[1];
-    if (asin && /^[A-Z0-9]{10}$/i.test(asin)) return `https://www.${h.endsWith("amazon.com") ? "amazon.com" : "amazon.co.jp"}/dp/${asin.toUpperCase()}`;
+    if (asin && /^[A-Z0-9]{10}$/i.test(asin)) return `https://www.${isShopHost(h, "amazon.com") ? "amazon.com" : "amazon.co.jp"}/dp/${asin.toUpperCase()}`;
   }
   return null;
 }
@@ -230,12 +255,12 @@ export function withAffiliate(rawUrl: string): string {
     const h = host(u);
     const amazonTag = process.env.AFFILIATE_AMAZON_TAG;
     const dmmId = process.env.AFFILIATE_DMM_ID;
-    if (amazonTag && /amazon\.co\.jp$/.test(h)) {
+    if (amazonTag && isShopHost(h, "amazon.co.jp")) {
       u.searchParams.set("tag", amazonTag);
       return u.toString();
     }
-    if (dmmId && (h.endsWith("dmm.co.jp") || h.endsWith("dmm.com"))) {
-      return `https://al.${h.endsWith("dmm.co.jp") ? "dmm.co.jp" : "dmm.com"}/?lurl=${encodeURIComponent(u.toString())}&af_id=${encodeURIComponent(dmmId)}&ch=link_tool&ch_id=link`;
+    if (dmmId && (isShopHost(h, "dmm.co.jp") || isShopHost(h, "dmm.com"))) {
+      return `https://al.${isShopHost(h, "dmm.co.jp") ? "dmm.co.jp" : "dmm.com"}/?lurl=${encodeURIComponent(u.toString())}&af_id=${encodeURIComponent(dmmId)}&ch=link_tool&ch_id=link`;
     }
     return u.toString();
   } catch {
