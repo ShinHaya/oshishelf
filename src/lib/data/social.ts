@@ -1,6 +1,6 @@
 import "server-only";
 import { FieldValue } from "firebase-admin/firestore";
-import { db } from "../firebase-admin";
+import { adminAuth, db } from "../firebase-admin";
 import { resolveWishes } from "../access";
 import { getItems } from "./items";
 import type { Item, Notification, UserProfile, Wish } from "../types";
@@ -156,24 +156,55 @@ export async function markAllRead(uid: string) {
   await batch.commit();
 }
 
-// ---- per-user AI quota (cost & abuse control) ----
+// ---- daily AI quotas (UTC, cost & abuse control) ----
 
-const DAILY_LIMITS: Record<string, number> = {
-  import: 40,
+export const DAILY_LIMITS = {
+  import: 300, // candidates, including search-only and duplicate candidates
+  importRead: 40, // purchase-history extraction attempts
+  importFallback: 10,
   screenshot: 15,
   bio: 10,
   compat: 30,
   twin: 60,
   watcher: 5,
-};
+} as const;
 
-/** Atomically consume one unit of a daily AI quota. Throws when exhausted. */
-export async function consumeQuota(uid: string, kind: keyof typeof DAILY_LIMITS) {
-  const day = new Date().toISOString().slice(0, 10);
+export const GLOBAL_DAILY_LIMITS: Record<keyof typeof DAILY_LIMITS, number> = {
+  import: 3000,
+  importRead: 200,
+  importFallback: 100,
+  screenshot: 100,
+  bio: 100,
+  compat: 300,
+  twin: 600,
+  watcher: 50,
+};
+export const NEW_ACCOUNT_IMPORT_LIMIT = 50;
+const NEW_ACCOUNT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Reserve work before external calls. Failed attempts remain charged; both counters update atomically. */
+export async function consumeQuota(uid: string, kind: keyof typeof DAILY_LIMITS, units = 1) {
+  if (!Number.isSafeInteger(units) || units < 1) throw new Error("利用量が不正です");
+  const now = Date.now();
+  const day = new Date(now).toISOString().slice(0, 10);
+  let limit: number = DAILY_LIMITS[kind];
+  if (kind === "import") {
+    // Auth creation time cannot be reset by deleting/recreating an onboarding profile.
+    const user = await adminAuth.getUser(uid);
+    const createdAt = Date.parse(user.metadata.creationTime);
+    if (!Number.isFinite(createdAt) || now - createdAt < NEW_ACCOUNT_AGE_MS) limit = NEW_ACCOUNT_IMPORT_LIMIT;
+  }
   const ref = db.collection("usage").doc(`${uid}_${day}`);
+  // No uid: account deletion must not reset the shared budget.
+  const globalRef = db.collection("globalUsage").doc(day);
   await db.runTransaction(async (tx) => {
-    const used = ((await tx.get(ref)).get(kind) as number | undefined) ?? 0;
-    if (used >= DAILY_LIMITS[kind]) throw new Error("本日のAI利用上限に達しました。明日またお試しください。");
-    tx.set(ref, { [kind]: used + 1, uid, day }, { merge: true });
+    const userSnap = await tx.get(ref);
+    const globalSnap = await tx.get(globalRef);
+    const used = (userSnap.get(kind) as number | undefined) ?? 0;
+    const globalUsed = (globalSnap.get(kind) as number | undefined) ?? 0;
+    if (used + units > limit) throw new Error("本日のAI利用上限に達しました。取り込み件数を減らすか、明日またお試しください。");
+    if (globalUsed + units > GLOBAL_DAILY_LIMITS[kind]) throw new Error("サービス全体の本日のAI利用上限に達しました。明日またお試しください。");
+    tx.set(ref, { [kind]: used + units, uid, day }, { merge: true });
+    tx.set(globalRef, { [kind]: globalUsed + units, day }, { merge: true });
   });
 }

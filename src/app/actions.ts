@@ -138,7 +138,6 @@ export async function importUrlsAction(_: unknown, form: FormData): Promise<Acti
       .filter((s) => /^https?:\/\//.test(s))
       .slice(0, 30);
     if (!urls.length) throw new Error("商品URLを入力してください");
-    await consumeQuota(uid, "import");
     const report = await importCandidates(uid, urls.map((url) => ({ url, title: "" })), "url", profile.defaultVisibility);
     revalidatePath("/import/review");
     return report;
@@ -170,7 +169,7 @@ export async function importPasteAction(_: unknown, form: FormData): Promise<Act
   return attempt(async () => {
     const text = String(form.get("text") ?? "").trim();
     if (text.length < 10) throw new Error("購入履歴ページのテキストを貼り付けてください");
-    await consumeQuota(uid, "import");
+    await consumeQuota(uid, "importRead");
     // A bare product URL is not proof of purchase; preserve the page context for AI.
     const urls = text.match(/https?:\/\/[^\s"'<>]+/g) ?? [];
     if (ADULT_SHOP_TEXT.test(text) || urls.some((url) => detectShop(url).adult)) {
@@ -230,7 +229,7 @@ export async function importBulkAction(payload: z.infer<typeof bulkSchema>): Pro
   const { uid, profile } = await requireProfile();
   return attempt(async () => {
     const data = bulkSchema.parse(payload);
-    await consumeQuota(uid, "import");
+    await consumeQuota(uid, "importRead");
     const cards: PageCard[] =
       data.cards ?? (data.links ?? []).map((l) => ({ href: l.href, text: l.text, context: "", section: "", imgs: l.img ? [{ src: l.img, alt: "" }] : [], page: 1 }));
     // Ownership context is required before AI reads the cards; code verifies its selections.

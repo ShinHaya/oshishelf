@@ -3,11 +3,13 @@ import { Type, type Schema } from "@google/genai";
 import { generateJson, LITE_MODEL } from "../gemini";
 import { canonicalizeUrl, detectShop, looksLikeProductUrl, publicProductUrl, shopSearchUrl } from "../../shops";
 import { fetchProductMeta, readProductWithGemini } from "../../product-meta";
+import { consumeQuota } from "../../data/social";
 import { createDrafts, type NewItem } from "../../data/items";
 import type { Category, ImportCandidate, ImportSource, Visibility } from "../../types";
 import { runPrivacyGuard } from "./guard";
 
 export const MAX_ITEMS_PER_IMPORT = 150;
+export const MAX_GEMINI_FALLBACKS_PER_IMPORT = 5;
 
 const listSchema: Schema = {
   type: Type.OBJECT,
@@ -148,6 +150,9 @@ export interface ImportReport {
  */
 export async function importCandidates(uid: string, candidates: ImportCandidate[], source: ImportSource, defaultVisibility: Visibility): Promise<ImportReport> {
   const list = candidates.slice(0, MAX_ITEMS_PER_IMPORT);
+  if (!list.length) return { created: 0, skipped: 0, flagged: 0 };
+  await consumeQuota(uid, "import", list.length);
+  let fallbackAttempts = 0;
   const resolved = await mapLimit(list, 6, async (c) => {
     // Library / reader / order links need the buyer's login: use the public product page when the
     // URL still carries the product id.
@@ -172,8 +177,10 @@ export async function importCandidates(uid: string, candidates: ImportCandidate[
       } catch {
         // keep what we have; shops often block bots
       }
-      if (!title && !loginWall) {
+      if (!title && !loginWall && fallbackAttempts < MAX_GEMINI_FALLBACKS_PER_IMPORT) {
+        fallbackAttempts++; // Reserve synchronously before the parallel workers await.
         try {
+          await consumeQuota(uid, "importFallback");
           const meta = await readProductWithGemini(url);
           loginWall = !!meta.loginWall;
           title = meta.title ?? "";

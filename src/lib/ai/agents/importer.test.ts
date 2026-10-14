@@ -2,10 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("../gemini", () => ({ generateJson: vi.fn(), LITE_MODEL: "test-model" }));
 vi.mock("../../product-meta", () => ({ fetchProductMeta: vi.fn(), readProductWithGemini: vi.fn() }));
+vi.mock("../../data/social", () => ({ consumeQuota: vi.fn() }));
 vi.mock("../../data/items", () => ({ createDrafts: vi.fn() }));
 vi.mock("./guard", () => ({ runPrivacyGuard: vi.fn() }));
 import { generateJson } from "../gemini";
-import { extractFromScreenshot, extractFromText } from "./importer";
+import { consumeQuota } from "../../data/social";
+import { fetchProductMeta, readProductWithGemini } from "../../product-meta";
+import { createDrafts } from "../../data/items";
+import { importCandidates, MAX_GEMINI_FALLBACKS_PER_IMPORT, extractFromScreenshot, extractFromText } from "./importer";
 
 const model = vi.mocked(generateJson);
 beforeEach(() => { model.mockReset(); });
@@ -42,5 +46,46 @@ describe("purchase evidence for pasted text and screenshots", () => {
     const result = await extractFromScreenshot("fake-image", "image/png");
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ title: "架空の本", urlIsSearch: true });
+  });
+});
+
+
+describe("import work budgets", () => {
+  const candidates = Array.from({ length: 30 }, (_, i) => ({ url: `https://www.amazon.co.jp/dp/B${String(i).padStart(9, "0")}`, title: "" }));
+  beforeEach(() => {
+    vi.mocked(consumeQuota).mockReset();
+    vi.mocked(fetchProductMeta).mockReset();
+    vi.mocked(readProductWithGemini).mockReset();
+    vi.mocked(createDrafts).mockReset();
+    vi.mocked(fetchProductMeta).mockResolvedValue({ title: null, imageUrl: null, price: null, description: null });
+    vi.mocked(readProductWithGemini).mockRejectedValue(new Error("blocked"));
+    vi.mocked(createDrafts).mockResolvedValue([]);
+    model.mockResolvedValue({ items: [] });
+  });
+  it("charges all candidates before fetching and caps parallel fallback attempts, including failures", async () => {
+    await importCandidates("fictional-owner", candidates, "url", "private");
+    expect(consumeQuota).toHaveBeenNthCalledWith(1, "fictional-owner", "import", 30);
+    expect(fetchProductMeta).toHaveBeenCalledTimes(30);
+    expect(readProductWithGemini).toHaveBeenCalledTimes(MAX_GEMINI_FALLBACKS_PER_IMPORT);
+    expect(consumeQuota).toHaveBeenCalledTimes(1 + MAX_GEMINI_FALLBACKS_PER_IMPORT);
+  });
+  it("does no external work or writes when the candidate reservation fails", async () => {
+    vi.mocked(consumeQuota).mockRejectedValueOnce(new Error("quota"));
+    await expect(importCandidates("fictional-owner", candidates, "bulk", "private")).rejects.toThrow("quota");
+    expect(fetchProductMeta).not.toHaveBeenCalled();
+    expect(model).not.toHaveBeenCalled();
+    expect(createDrafts).not.toHaveBeenCalled();
+  });
+  it("does not call Gemini when the fallback daily budget is exhausted", async () => {
+    vi.mocked(consumeQuota).mockImplementation(async (_, kind) => { if (kind === "importFallback") throw new Error("quota"); });
+    await importCandidates("fictional-owner", candidates, "url", "private");
+    expect(readProductWithGemini).not.toHaveBeenCalled();
+  });
+  it("charges only the bounded candidate list and skips empty input", async () => {
+    await importCandidates("fictional-owner", [], "paste", "private");
+    expect(consumeQuota).not.toHaveBeenCalled();
+    await importCandidates("fictional-owner", Array.from({ length: 151 }, () => ({ url: "https://example.com/search", title: "架空", urlIsSearch: true })), "paste", "private");
+    expect(consumeQuota).toHaveBeenCalledWith("fictional-owner", "import", 150);
+    expect(fetchProductMeta).not.toHaveBeenCalled();
   });
 });
