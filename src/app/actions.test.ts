@@ -40,7 +40,7 @@ describe("purchase-history action boundaries", () => {
     expect((await paste(text)).ok).toBe(true);
     expect(extractFromText).toHaveBeenCalledWith(text);
     expect(importCandidates).toHaveBeenCalledWith("fictional-owner", [owned], "paste", "private");
-    expect(consumeQuota).toHaveBeenCalledWith("fictional-owner", "import");
+    expect(consumeQuota).toHaveBeenCalledWith("fictional-owner", "importRead");
   });
 
   it("rejects adult-shop pasted URLs instead of treating them as purchases or sending titles to AI", async () => {
@@ -66,6 +66,14 @@ describe("purchase-history action boundaries", () => {
     const result = await importBulkAction({ page: "https://www.amazon.co.jp/your-orders/orders", cards: [owned, card(tracking, "https://m.media-amazon.com/images/I/fictional.jpg")] });
     expect(result.ok).toBe(true);
     expect(readPurchaseHistory).toHaveBeenCalledWith([{ ...owned, imgs: [] }], "https://www.amazon.co.jp/your-orders/orders", "", 150);
+  });
+
+  it("rejects exhausted extraction budgets before calling the history model", async () => {
+    vi.mocked(consumeQuota).mockRejectedValueOnce(new Error("quota"));
+    const result = await importBulkAction({ page: "https://shop.example/orders", cards: [] });
+    expect(result).toEqual({ ok: false, error: "quota" });
+    expect(readPurchaseHistory).not.toHaveBeenCalled();
+    expect(importCandidates).not.toHaveBeenCalled();
   });
 
   it("still requires authentication before reading or importing history", async () => {
