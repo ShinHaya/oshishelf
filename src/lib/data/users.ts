@@ -1,4 +1,5 @@
 import "server-only";
+import { UserError } from "../user-error";
 import { FieldValue } from "firebase-admin/firestore";
 import { db } from "../firebase-admin";
 import type { UserProfile } from "../types";
@@ -50,13 +51,13 @@ export const HANDLE_RE = /^[a-z0-9_]{3,20}$/;
 /** Create a profile with a unique handle (transactional reservation). */
 export async function createUser(uid: string, input: { handle: string; displayName: string; isAdult: boolean }) {
   const handle = input.handle.toLowerCase();
-  if (!HANDLE_RE.test(handle)) throw new Error("ハンドルは半角英小文字・数字・_ の3〜20文字にしてください");
+  if (!HANDLE_RE.test(handle)) throw new UserError("ハンドルは半角英小文字・数字・_ の3〜20文字にしてください");
   await db.runTransaction(async (tx) => {
     const hRef = db.collection("handles").doc(handle);
     const uRef = usersCol().doc(uid);
     const [h, u] = await Promise.all([tx.get(hRef), tx.get(uRef)]);
-    if (u.exists) throw new Error("すでにプロフィールが作成されています");
-    if (h.exists) throw new Error("そのハンドルは使われています");
+    if (u.exists) throw new UserError("すでにプロフィールが作成されています");
+    if (h.exists) throw new UserError("そのハンドルは使われています");
     tx.set(hRef, { uid });
     tx.set(uRef, {
       handle,
@@ -96,7 +97,7 @@ export async function addShelfCategory(uid: string, name: string) {
   await db.runTransaction(async (tx) => {
     const current = ((await tx.get(ref)).get("shelfCategories") as string[] | undefined) ?? [];
     if (current.includes(name)) return;
-    if (current.length >= MAX_SHELF_CATEGORIES) throw new Error(`カテゴリーは${MAX_SHELF_CATEGORIES}個までです`);
+    if (current.length >= MAX_SHELF_CATEGORIES) throw new UserError(`カテゴリーは${MAX_SHELF_CATEGORIES}個までです`);
     tx.update(ref, { shelfCategories: FieldValue.arrayUnion(name) });
   });
 }

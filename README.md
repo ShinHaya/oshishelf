@@ -92,7 +92,7 @@ flowchart LR
 
 ## 提出資料
 
-- [Zenn 記事の下書き](docs/zenn-article.md)
+- [Zenn 紹介記事](https://zenn.dev/sinhayasaka/articles/0beb2b047542c2) / [公開原稿](docs/zenn-article.md) / [公開と登録の記録](docs/zenn-publication.md)
 - [デモ動画の確定台本](docs/demo-video-script.md) / [撮影と公開の記録](docs/demo-video-production.md)
 - [提出チェックリストとプロジェクト説明文](docs/submission.md)
 

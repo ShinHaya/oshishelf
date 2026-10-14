@@ -1,4 +1,5 @@
 import "server-only";
+import { UserError } from "../user-error";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, db } from "../firebase-admin";
 import { resolveWishes } from "../access";
@@ -184,7 +185,7 @@ const NEW_ACCOUNT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Reserve work before external calls. Failed attempts remain charged; both counters update atomically. */
 export async function consumeQuota(uid: string, kind: keyof typeof DAILY_LIMITS, units = 1) {
-  if (!Number.isSafeInteger(units) || units < 1) throw new Error("利用量が不正です");
+  if (!Number.isSafeInteger(units) || units < 1) throw new UserError("利用量が不正です");
   const now = Date.now();
   const day = new Date(now).toISOString().slice(0, 10);
   let limit: number = DAILY_LIMITS[kind];
@@ -202,8 +203,8 @@ export async function consumeQuota(uid: string, kind: keyof typeof DAILY_LIMITS,
     const globalSnap = await tx.get(globalRef);
     const used = (userSnap.get(kind) as number | undefined) ?? 0;
     const globalUsed = (globalSnap.get(kind) as number | undefined) ?? 0;
-    if (used + units > limit) throw new Error("本日のAI利用上限に達しました。取り込み件数を減らすか、明日またお試しください。");
-    if (globalUsed + units > GLOBAL_DAILY_LIMITS[kind]) throw new Error("サービス全体の本日のAI利用上限に達しました。明日またお試しください。");
+    if (used + units > limit) throw new UserError("本日のAI利用上限に達しました。取り込み件数を減らすか、明日またお試しください。");
+    if (globalUsed + units > GLOBAL_DAILY_LIMITS[kind]) throw new UserError("サービス全体の本日のAI利用上限に達しました。明日またお試しください。");
     tx.set(ref, { [kind]: used + units, uid, day }, { merge: true });
     tx.set(globalRef, { [kind]: globalUsed + units, day }, { merge: true });
   });

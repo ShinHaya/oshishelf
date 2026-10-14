@@ -9,7 +9,7 @@
 - [ ] **システムアーキテクチャ図の画像**: [提出用PNG](architecture.png)（1600 × 1020 px）
 - [ ] **デモ動画 URL**: https://youtu.be/o4LUiTS3IsU （YouTube公開済み、約3分、日本語字幕付き。提出フォームへの登録は未確認）
   - [確定台本](demo-video-script.md) / [撮影と公開の記録](demo-video-production.md)
-- [ ] **Zenn 記事 URL**（任意・カテゴリ「Idea」で公開）: 下書きは `docs/zenn-article.md`
+- [x] **Zenn 記事 URL**（任意・カテゴリ「Idea」で公開）: https://zenn.dev/sinhayasaka/articles/0beb2b047542c2 （2026年10月14日公開、プロジェクト紹介欄へ保存済み。[公開記録](zenn-publication.md)）
 
 ## 審査用の操作手順
 
@@ -92,7 +92,7 @@
 
 - 参加登録、GitHub App連携、フォーム登録と最終送信の状況は未確認。冒頭のチェック欄は送信の証跡を確認してから更新する。
 - 説明文、PNG、公開動画URLをフォームに転記し、保存後のプレビューで図と文字の読みやすさを確認する。
-- [安全性と費用の評価](safety-cost-assessment.md)では #9、#10、#12、#14 を提出前修正と判断。元Issueの修正と反映後のデモ確認は未完了。#13はmainで対応済みだが、本番反映は今回未確認。
+- [安全性と費用の評価](safety-cost-assessment.md)の対象は、#13がPR #36、#9、#10、#12、#14、#15がPR #38でmainへマージ済み。本番反映、反映後のデモ確認、安全性修正の実環境検証は未確認。
 - 未確認の操作と既知の相性キャッシュの制限は[デモ確認記録](demo-validation.md#未確認の範囲)も参照する。
 - 動画のログアウト状態での再生は未確認。詳細は[公開記録](demo-video-production.md#2026年10月14日の再確認)を参照する。
 - 任意のZenn記事は下書きのまま。公開済みや提出済みとは扱わない。

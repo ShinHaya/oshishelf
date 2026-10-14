@@ -1,4 +1,6 @@
 import "server-only";
+import { createHash } from "node:crypto";
+import { UserError } from "../../user-error";
 import { FunctionTool, LlmAgent } from "@google/adk";
 import { z } from "zod";
 import { Type, type Schema } from "@google/genai";
@@ -9,7 +11,7 @@ import { SAFETY_SETTINGS } from "../gemini";
 import { db } from "../../firebase-admin";
 import { listShelf } from "../../data/items";
 import { listFollowing } from "../../data/social";
-import { findSimilarUsers, getTasteVector } from "../../data/users";
+import { findSimilarUsers, getTasteVector, getUser } from "../../data/users";
 import type { Item, UserProfile } from "../../types";
 import { itemBrief, searchShelf, shelfOverview } from "./shelf-tools";
 
@@ -109,21 +111,40 @@ export function compatScope(viewer: UserProfile, target: UserProfile) {
   return { mineAdult, theirsAdult, docId: `${viewer.uid}_${target.uid}_${mineAdult || theirsAdult ? "adult" : "safe"}` };
 }
 
-/** Explain viewer ↔ target compatibility with an ADK agent; cached per scope for a day. */
-export async function analyzeCompatibility(viewer: UserProfile, target: UserProfile, force = false): Promise<Compatibility> {
+/** Read current consent and exactly the shelf inputs used by the agent and display. */
+async function compatibilityInput(viewerUid: string, targetUid: string) {
+  const [viewer, target, myShelf, theirShelf] = await Promise.all([
+    getUser(viewerUid), getUser(targetUid), listShelf(viewerUid), listShelf(targetUid),
+  ]);
+  if (!viewer || !target) return null;
   const scope = compatScope(viewer, target);
-  const ref = db.collection("compat").doc(scope.docId);
-  if (!force) {
-    const cached = await ref.get();
-    if (cached.exists && Date.now() - cached.get("generatedAt") < CACHE_TTL_MS) return cached.data() as Compatibility;
-  }
-  const [myShelf, theirShelf] = await Promise.all([listShelf(viewer.uid), listShelf(target.uid)]);
   const mine = aiItems(myShelf, scope.mineAdult);
   const theirs = aiItems(theirShelf, scope.theirsAdult);
-  if (mine.length === 0 || theirs.length === 0) throw new Error("相性分析には、お互いに全体公開の作品が必要です");
+  // Only hashes are stored. Include real pick titles too, never send them to the adult AI input.
+  const titles = new Map(theirShelf.map((i) => [i.id, i.title]));
+  const inputHash = createHash("sha256").update(JSON.stringify({
+    version: 1,
+    viewer: [viewer.uid, viewer.displayName, viewer.isAdult, viewer.showAdult, viewer.aiUseAdult],
+    target: [target.uid, target.displayName, target.isAdult, target.aiUseAdult],
+    mine: mine.map(itemBrief),
+    theirs: theirs.map((i) => ({ ...itemBrief(i), displayTitle: titles.get(i.id) })),
+  })).digest("hex");
+  return { viewer, target, scope, theirShelf, mine, theirs, inputHash };
+}
+
+/** Explain compatibility; legacy or changed-input caches are never reused. */
+export async function analyzeCompatibility(viewer: UserProfile, target: UserProfile, force = false): Promise<Compatibility> {
+  if (!force) {
+    const cached = await getCachedCompatibility(viewer, target);
+    if (cached) return cached;
+  }
+  const input = await compatibilityInput(viewer.uid, target.uid);
+  if (!input || input.mine.length === 0 || input.theirs.length === 0) throw new UserError("相性分析には、お互いに全体公開の作品が必要です");
+  const { scope, mine, theirs, theirShelf } = input;
+  const ref = db.collection("compat").doc(scope.docId);
 
   const { data: p, steps } = await runAgentJson<Omit<Compatibility, "generatedAt" | "steps">>(
-    buildAgent(mine, theirs, viewer.displayName, target.displayName),
+    buildAgent(mine, theirs, input.viewer.displayName, input.target.displayName),
     viewer.uid,
     "わたしと相手の相性を分析してください。",
     SCHEMA,
@@ -144,13 +165,29 @@ export async function analyzeCompatibility(viewer: UserProfile, target: UserProf
     generatedAt: Date.now(),
     steps,
   };
-  await ref.set({ ...result, viewerUid: viewer.uid, targetUid: target.uid });
+  // A withdrawal while Gemini runs must not revive stale output (including summaries and steps).
+  const current = await compatibilityInput(viewer.uid, target.uid);
+  if (current?.inputHash !== input.inputHash) throw new UserError("棚または同意設定が変わりました。もう一度分析してください。");
+  await ref.set({ ...result, viewerUid: viewer.uid, targetUid: target.uid, inputHash: input.inputHash });
+  const afterSave = await compatibilityInput(viewer.uid, target.uid);
+  if (afterSave?.inputHash !== input.inputHash) throw new UserError("棚または同意設定が変わりました。もう一度分析してください。");
   return result;
 }
 
 export async function getCachedCompatibility(viewer: UserProfile, target: UserProfile): Promise<Compatibility | null> {
-  const snap = await db.collection("compat").doc(compatScope(viewer, target).docId).get();
-  return snap.exists ? (snap.data() as Compatibility) : null;
+  const scope = compatScope(viewer, target);
+  const snap = await db.collection("compat").doc(scope.docId).get();
+  if (!snap.exists) return null;
+  const data = snap.data()!;
+  const age = Date.now() - data.generatedAt;
+  if (!Number.isFinite(age) || age < 0 || age >= CACHE_TTL_MS || typeof data.inputHash !== "string") return null;
+  // Read the live inputs after the cache; stale caller profiles may choose a key but never grant access.
+  const input = await compatibilityInput(viewer.uid, target.uid);
+  if (!input || input.scope.docId !== scope.docId || data.inputHash !== input.inputHash) return null;
+  return {
+    score: data.score, summary: data.summary, sharedPoints: data.sharedPoints, picks: data.picks,
+    icebreakers: data.icebreakers, generatedAt: data.generatedAt, steps: data.steps,
+  };
 }
 
 /** Vector-search users with a similar taste, excluding self and people already followed. */

@@ -1,8 +1,9 @@
 import "server-only";
+import { UserError } from "../user-error";
 import { FieldValue } from "firebase-admin/firestore";
 import { db } from "../firebase-admin";
 import { deleteReactionsForItems } from "./reviews";
-import { lacksProductInfo } from "../shops";
+import { isProductUrl, lacksProductInfo } from "../shops";
 import type { Category, GuardResult, ImportSource, Item, ItemStatus, Visibility } from "../types";
 
 export const itemsCol = () => db.collection("items");
@@ -54,6 +55,7 @@ export interface NewItem {
 
 /** Insert drafts, skipping products the user already has (by productKey). Returns created ids. */
 export async function createDrafts(ownerUid: string, items: NewItem[]): Promise<string[]> {
+  if (items.some((i) => !isProductUrl(i.url))) throw new UserError("商品URLはHTTP(S)で指定してください");
   const keys = items.map((i) => i.productKey).filter((k): k is string => !!k);
   const existing = new Set<string>();
   for (let i = 0; i < keys.length; i += 30) {
@@ -183,6 +185,7 @@ export async function setItemProductInfo(
   id: string,
   patch: Pick<Item, "title" | "url" | "urlIsSearch" | "shop" | "shopLabel"> & { productKey: string | null },
 ) {
+  if (!isProductUrl(patch.url)) throw new UserError("商品URLはHTTP(S)で指定してください");
   const ref = itemsCol().doc(id);
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);

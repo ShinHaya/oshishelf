@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { canonicalizeUrl, detectShop, looksLikeProductUrl, publicProductUrl } from "./shops";
+import { describe, expect, it, vi } from "vitest";
+import { canonicalizeUrl, detectShop, looksLikeProductUrl, publicProductUrl, isProductUrl, isKnownShopUrl, withAffiliate } from "./shops";
 
 describe("商品URLの判定と重複排除", () => {
   it.each([
@@ -50,5 +50,41 @@ describe("商品URLの判定と重複排除", () => {
   it("不正URLは商品候補から除外する", () => {
     expect(looksLikeProductUrl("invalid")).toBe(false);
     expect(detectShop("invalid").shop).toBe("unknown");
+  });
+});
+
+describe("偽ドメインを正規ショップにしない", () => {
+  it.each([
+    ["https://evildlsite.com/home/work/=/product_id/RJ123456.html", "dlsite"],
+    ["https://fakedmm.com/detail/=/cid=abc001/", "dmm"],
+    ["https://fakedmm.co.jp/detail/=/cid=abc001/", "fanza"],
+    ["https://notbooth.pm/items/12345", "booth"],
+    ["https://fakerakuten.co.jp/rb/12345/", "rakuten"],
+    ["https://fakebookwalker.jp/de12345678-1234-1234-1234/", "bookwalker"],
+    ["https://faketoranoana.jp/tora_r/123456/", "toranoana"],
+    ["https://fakeamazon.co.jp/dp/B000000001", "amazon"],
+    ["https://dlsite.com.evil.example/product_id/RJ123456.html", "dlsite"],
+  ])("%s に正規ショップラベルやアフィリエイトを付けない", (url, shop) => {
+    vi.stubEnv("AFFILIATE_DMM_ID", "fictional-id");
+    vi.stubEnv("AFFILIATE_AMAZON_TAG", "fictional-tag");
+    expect(detectShop(url).shop).not.toBe(shop);
+    expect(looksLikeProductUrl(url)).toBe(false);
+    expect(isKnownShopUrl(url)).toBe(false);
+    expect(withAffiliate(url)).toBe(url);
+    vi.unstubAllEnvs();
+  });
+  it.each(["https://book.dmm.co.jp/product/123/abc001/", "https://books.rakuten.co.jp/rb/12345/", "https://sub.booth.pm/items/12345", "https://www.amazon.co.jp/dp/B000000001"])("正規サブドメイン %s を維持する", (url) => {
+    expect(isKnownShopUrl(url)).toBe(true);
+    expect(looksLikeProductUrl(url)).toBe(true);
+  });
+  it.each(["javascript:alert(1)", "data:text/html,x", "ftp://www.amazon.co.jp/dp/B000000001", "/relative", "https://user:pass@www.amazon.co.jp/dp/B000000001"])("危険な商品URL %s を拒否する", (url) => {
+    expect(isProductUrl(url)).toBe(false);
+    expect(isKnownShopUrl(url)).toBe(false);
+    expect(looksLikeProductUrl(url)).toBe(false);
+  });
+  it("未知ショップは保存できるが確認画面を要求する", () => {
+    expect(isProductUrl("https://shop.example/product/fictional")).toBe(true);
+    expect(isKnownShopUrl("https://shop.example/product/fictional")).toBe(false);
+    expect(isKnownShopUrl("https://www.amazon.co.jp:8443/dp/B000000001")).toBe(false);
   });
 });
