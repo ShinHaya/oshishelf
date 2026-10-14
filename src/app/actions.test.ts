@@ -16,6 +16,7 @@ vi.mock("@/lib/ai/agents/matcher", () => ({}));
 vi.mock("@/lib/ai/agents/twin", () => ({}));
 vi.mock("@/lib/ai/agents/watcher", () => ({}));
 vi.mock("@/lib/ai/agents/guard", () => ({}));
+import { UserError } from "@/lib/user-error";
 import { requireProfile } from "@/lib/session";
 import { consumeQuota } from "@/lib/data/social";
 import { extractFromText, importCandidates } from "@/lib/ai/agents/importer";
@@ -69,7 +70,7 @@ describe("purchase-history action boundaries", () => {
   });
 
   it("rejects exhausted extraction budgets before calling the history model", async () => {
-    vi.mocked(consumeQuota).mockRejectedValueOnce(new Error("quota"));
+    vi.mocked(consumeQuota).mockRejectedValueOnce(new UserError("quota"));
     const result = await importBulkAction({ page: "https://shop.example/orders", cards: [] });
     expect(result).toEqual({ ok: false, error: "quota" });
     expect(readPurchaseHistory).not.toHaveBeenCalled();
@@ -112,7 +113,7 @@ describe("custom shelf categories", () => {
   });
 
   it("does not assign items when the category limit is reached", async () => {
-    vi.mocked(addShelfCategory).mockRejectedValueOnce(new Error("カテゴリーは50個までです"));
+    vi.mocked(addShelfCategory).mockRejectedValueOnce(new UserError("カテゴリーは50個までです"));
     expect(await assignShelfCategoryAction(["fictional-a"], "新しいカテゴリー")).toEqual({ ok: false, error: "カテゴリーは50個までです" });
     expect(setItemsShelfCategory).not.toHaveBeenCalled();
   });
@@ -138,5 +139,20 @@ describe("custom shelf categories", () => {
     expect(addShelfCategory).not.toHaveBeenCalled();
     expect(setItemsShelfCategory).not.toHaveBeenCalled();
     expect(clearShelfCategory).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("bulk payload boundary", () => {
+  it("rejects unsafe links before spending AI quota", async () => {
+    expect((await importBulkAction({ page: "https://shop.example/orders", cards: [{ href: "javascript:alert(1)", text: "架空", context: "", section: "購入履歴", imgs: [], page: 1 }] })).ok).toBe(false);
+    expect(consumeQuota).not.toHaveBeenCalled();
+    expect(readPurchaseHistory).not.toHaveBeenCalled();
+  });
+  it("does not expose infrastructure errors through the actual action", async () => {
+    vi.mocked(consumeQuota).mockRejectedValueOnce(new Error("Firestore index: private-project.example"));
+    const result = await importBulkAction({ page: "https://shop.example/orders", cards: [] });
+    expect(result).toEqual({ ok: false, error: "処理に失敗しました。時間をおいてもう一度お試しください。" });
+    expect(readPurchaseHistory).not.toHaveBeenCalled();
   });
 });

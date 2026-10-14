@@ -1,4 +1,5 @@
 import "server-only";
+import { UserError } from "../user-error";
 import { GoogleGenAI, HarmBlockThreshold, HarmCategory, type Part, type Schema } from "@google/genai";
 import { PROJECT_ID } from "../firebase-admin";
 
@@ -30,7 +31,7 @@ export async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<
       return await fn();
     } catch (e) {
       if (i >= attempts - 1 || !isRetryable(e)) {
-        if (isRetryable(e)) throw new Error("AIが混み合っています。少し待ってからもう一度お試しください。");
+        if (isRetryable(e)) throw new UserError("AIが混み合っています。少し待ってからもう一度お試しください。");
         throw e;
       }
       await new Promise((r) => setTimeout(r, 1500 * 2 ** i + Math.random() * 1000));

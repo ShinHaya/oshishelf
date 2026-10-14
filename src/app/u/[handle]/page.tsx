@@ -117,7 +117,7 @@ export default async function ProfilePage(props: PageProps<"/u/[handle]">) {
 
       {me && !isMe && (
         <div className="grid gap-4 md:grid-cols-2">
-          <CompatPanel targetUid={owner.uid} targetName={owner.displayName} initial={compat} />
+          <CompatPanel key={`${owner.uid}:${compat?.generatedAt ?? "none"}`} targetUid={owner.uid} targetName={owner.displayName} initial={compat} />
           {owner.twinEnabled && <TwinChat handle={owner.handle} name={owner.displayName} />}
         </div>
       )}

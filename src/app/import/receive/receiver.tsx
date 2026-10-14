@@ -6,28 +6,19 @@ import type { ImportReport } from "@/lib/ai/agents/importer";
 import { BookmarkletLink } from "../bookmarklet-link";
 import { ImportResult } from "../import-tabs";
 
-interface Payload {
-  type: "oshishelf:cards" | "oshishelf:links";
-  version?: number;
-  mode?: "remote" | "embedded";
-  page: string;
-  title?: string;
-  cards?: { href: string; text: string; context: string; section: string; imgs: { src: string; alt: string }[]; page: number }[];
-  /** Older bookmarklets. */
-  links?: { href: string; text: string; img?: string | null }[];
-  text?: string;
-}
+import { parseImportMessage, type ImportPayload } from "@/lib/import-payload";
 
 export function Receiver({ bookmarklet, version }: { bookmarklet: string; version: number }) {
-  const [payload, setPayload] = useState<Payload | null>(null);
+  const [payload, setPayload] = useState<ImportPayload | null>(null);
   const [result, setResult] = useState<ActionResult<ImportReport> | null>(null);
   const [pending, start] = useTransition();
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       // The sender is the shop page; its data is treated as untrusted input and validated server-side.
-      if (e.source !== window.opener || (e.data?.type !== "oshishelf:cards" && e.data?.type !== "oshishelf:links")) return;
-      setPayload(e.data as Payload);
+      if (!window.opener || e.source !== window.opener || (e.data?.type !== "oshishelf:cards" && e.data?.type !== "oshishelf:links")) return;
+      const received = parseImportMessage(e.data, e.origin);
+      if (received) setPayload((current) => current ?? received);
     };
     window.addEventListener("message", onMessage);
     // Only a fixed "ready" string is sent to the opener; no data leaves this page.
@@ -57,10 +48,8 @@ export function Receiver({ bookmarklet, version }: { bookmarklet: string; versio
 
   const count = payload.cards?.length ?? payload.links?.length ?? 0;
   const pages = payload.cards ? Math.max(1, ...payload.cards.map((c) => c.page)) : 1;
-  let host = "";
-  try {
-    host = new URL(payload.page).hostname;
-  } catch {}
+  const host = new URL(payload.origin).host;
+  const targets = payload.cards ?? payload.links ?? [];
 
   return (
     <div className="card space-y-3 p-6">
@@ -68,6 +57,12 @@ export function Receiver({ bookmarklet, version }: { bookmarklet: string; versio
       <p className="text-sm text-ink-2">
         {pages > 1 ? `${pages}ページ分の` : "ページ上の"}リンク {count} 件を受け取りました。取り込みエージェントが、購入した商品だけを選び出します（おすすめ・広告・試し読みなどは除外します）。
       </p>
+      <details className="text-sm">
+        <summary>取り込み対象のリンクを確認（{count}件）</summary>
+        <ul className="mt-2 max-h-72 overflow-auto break-all">
+          {targets.map((c, i) => <li key={i} className="border-b border-line py-2">{c.href || `リンクなし：${c.text}`}</li>)}
+        </ul>
+      </details>
       {payload.mode === "embedded" && (
         <p className="text-xs text-warn">このサイトでは最新版を読み込めなかったため、登録時の読み取り処理を使っています。今後の改善を反映するには、取り込みページでブックマークを更新してください。</p>
       )}

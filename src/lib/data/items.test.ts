@@ -13,7 +13,8 @@ vi.mock("../firebase-admin", () => ({
   },
 }));
 vi.mock("./reviews", () => ({ deleteReactionsForItems: vi.fn() }));
-import { clearShelfCategory, setItemsShelfCategory, toItem, updateItem } from "./items";
+import { makeItem } from "../test-fixtures";
+import { createDrafts, setItemProductInfo, clearShelfCategory, setItemsShelfCategory, toItem, updateItem } from "./items";
 
 beforeEach(() => { vi.clearAllMocks(); });
 
@@ -53,5 +54,19 @@ describe("bulk shelf category assignment", () => {
     expect(await clearShelfCategory("fictional-owner", "積読")).toBe(2);
     expect(mocks.where.mock.calls).toEqual([["ownerUid", "==", "fictional-owner"], ["shelfCategory", "==", "積読"]]);
     expect(mocks.batchUpdate.mock.calls).toEqual([["item-ref-1", { shelfCategory: null }], ["item-ref-2", { shelfCategory: null }]]);
+  });
+});
+
+describe("product URLs at the storage boundary", () => {
+  it.each(["javascript:alert(1)", "data:text/html,fictional", "file:///tmp/fictional", "https://user:pass@shop.example/product"])("rejects %s before draft lookup or updates", async (url) => {
+    await expect(createDrafts("fictional-owner", [{ ...makeItem({ url }), productKey: null }])).rejects.toThrow("HTTP(S)");
+    await expect(setItemProductInfo("fictional-owner", "fictional-item", { url, title: "架空", urlIsSearch: false, shop: "example", shopLabel: "Example", productKey: null })).rejects.toThrow("HTTP(S)");
+    expect(mocks.where).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+  it("checks ownership for a valid product URL update", async () => {
+    mocks.get.mockResolvedValue({ exists: true, get: () => "other-owner" });
+    await expect(setItemProductInfo("fictional-owner", "fictional-item", { url: "https://shop.example/product", title: "架空", urlIsSearch: false, shop: "example", shopLabel: "Example", productKey: null })).rejects.toThrow("not found");
+    expect(mocks.update).not.toHaveBeenCalled();
   });
 });

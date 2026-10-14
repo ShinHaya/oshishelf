@@ -89,3 +89,16 @@ describe("import work budgets", () => {
     expect(fetchProductMeta).not.toHaveBeenCalled();
   });
 });
+
+
+describe("candidate URL validation before external work", () => {
+  it.each(["javascript:alert(1)", "data:text/html,fictional", "https://user:pass@shop.example/product"])("rejects %s before fetching or reserving quota", async (url) => {
+    vi.mocked(consumeQuota).mockClear();
+    vi.mocked(fetchProductMeta).mockClear();
+    vi.mocked(createDrafts).mockClear();
+    await expect(importCandidates("fictional-owner", [{ url, title: "架空" }], "bulk", "private")).rejects.toThrow("HTTP(S)");
+    expect(consumeQuota).not.toHaveBeenCalled();
+    expect(fetchProductMeta).not.toHaveBeenCalled();
+    expect(createDrafts).not.toHaveBeenCalled();
+  });
+});

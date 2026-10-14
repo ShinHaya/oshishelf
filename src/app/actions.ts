@@ -22,18 +22,10 @@ import type { AgentStep } from "@/lib/ai/adk";
 import { canSeeAdult, canSeeItem, canWishItem } from "@/lib/access";
 import type { AiBio, Item, ReviewReaction, Visibility } from "@/lib/types";
 
-export type ActionResult<T = void> = { ok: true; data: T } | { ok: false; error: string };
-
-async function attempt<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
-  try {
-    return { ok: true, data: await fn() };
-  } catch (e) {
-    // redirect() throws a special error that must propagate
-    if (e && typeof e === "object" && "digest" in e && String((e as { digest: unknown }).digest).startsWith("NEXT_REDIRECT")) throw e;
-    console.error(e);
-    return { ok: false, error: e instanceof Error ? e.message : "エラーが発生しました" };
-  }
-}
+import { attempt, type ActionResult } from "@/lib/action-result";
+import { bulkSchema } from "@/lib/import-payload";
+import { UserError } from "@/lib/user-error";
+export type { ActionResult } from "@/lib/action-result";
 
 const visibility = z.enum(["public", "followers", "private"]);
 
@@ -96,7 +88,7 @@ export async function toggleFollowAction(targetUid: string): Promise<ActionResul
       revalidatePath("/", "layout");
       return false;
     }
-    if (!(await getUser(targetUid))) throw new Error("ユーザーが見つかりません");
+    if (!(await getUser(targetUid))) throw new UserError("ユーザーが見つかりません");
     await follow(uid, targetUid);
     await notify(targetUid, { kind: "follow", title: `${profile.displayName} さんにフォローされました`, body: "棚を見に行ってみましょう", url: `/u/${profile.handle}` });
     revalidatePath("/", "layout");
@@ -114,7 +106,7 @@ export async function toggleWishAction(itemId: string, wished: boolean): Promise
     const item = await getItem(z.string().min(1).parse(itemId));
     const following = item?.visibility === "followers" ? await isFollowing(uid, item.ownerUid) : false;
     // Same rule as viewing the item: no drafts, restricted, unfinished (members-only link) or unconsented R18 items.
-    if (!item || !canWishItem(item, { viewerUid: uid, viewerProfile: profile, following })) throw new Error("商品が見つかりません");
+    if (!item || !canWishItem(item, { viewerUid: uid, viewerProfile: profile, following })) throw new UserError("商品が見つかりません");
     await addWish(uid, item);
     revalidatePath("/wishlist");
     return true;
@@ -137,7 +129,7 @@ export async function importUrlsAction(_: unknown, form: FormData): Promise<Acti
       .map((s) => s.trim())
       .filter((s) => /^https?:\/\//.test(s))
       .slice(0, 30);
-    if (!urls.length) throw new Error("商品URLを入力してください");
+    if (!urls.length) throw new UserError("商品URLを入力してください");
     const report = await importCandidates(uid, urls.map((url) => ({ url, title: "" })), "url", profile.defaultVisibility);
     revalidatePath("/import/review");
     return report;
@@ -148,11 +140,11 @@ export async function importScreenshotAction(_: unknown, form: FormData): Promis
   const { uid, profile } = await requireProfile();
   return attempt(async () => {
     const files = form.getAll("images").filter((f): f is File => f instanceof File && f.size > 0).slice(0, 5);
-    if (!files.length) throw new Error("スクリーンショットを選択してください");
+    if (!files.length) throw new UserError("スクリーンショットを選択してください");
     let total: ImportReport = { created: 0, skipped: 0, flagged: 0 };
     for (const file of files) {
-      if (!/^image\/(png|jpeg|webp)$/.test(file.type)) throw new Error("PNG / JPEG / WebP 画像を選んでください");
-      if (file.size > 7 * 1024 * 1024) throw new Error("画像は7MBまでです");
+      if (!/^image\/(png|jpeg|webp)$/.test(file.type)) throw new UserError("PNG / JPEG / WebP 画像を選んでください");
+      if (file.size > 7 * 1024 * 1024) throw new UserError("画像は7MBまでです");
       await consumeQuota(uid, "screenshot");
       const b64 = Buffer.from(await file.arrayBuffer()).toString("base64");
       const candidates = await extractFromScreenshot(b64, file.type);
@@ -168,12 +160,12 @@ export async function importPasteAction(_: unknown, form: FormData): Promise<Act
   const { uid, profile } = await requireProfile();
   return attempt(async () => {
     const text = String(form.get("text") ?? "").trim();
-    if (text.length < 10) throw new Error("購入履歴ページのテキストを貼り付けてください");
+    if (text.length < 10) throw new UserError("購入履歴ページのテキストを貼り付けてください");
     await consumeQuota(uid, "importRead");
     // A bare product URL is not proof of purchase; preserve the page context for AI.
     const urls = text.match(/https?:\/\/[^\s"'<>]+/g) ?? [];
     if (ADULT_SHOP_TEXT.test(text) || urls.some((url) => detectShop(url).adult)) {
-      throw new Error("年齢制限のある商品を扱うショップの購入履歴は、作品名をAIに送らないブックマークレットで取り込んでください");
+      throw new UserError("年齢制限のある商品を扱うショップの購入履歴は、作品名をAIに送らないブックマークレットで取り込んでください");
     }
     const candidates = await extractFromText(text);
     const report = await importCandidates(uid, candidates, "paste", profile.defaultVisibility);
@@ -183,46 +175,6 @@ export async function importPasteAction(_: unknown, form: FormData): Promise<Act
 }
 
 const ADULT_SHOP_TEXT = /(FANZA|DLsite|dmm\.co\.jp|ファンザ)/i;
-
-const MAX_URL = 2000;
-const fitsUrl = (url: unknown) => typeof url !== "string" || url.length <= MAX_URL;
-
-/**
- * Shops embed ad and tracking redirects whose URLs run to several kilobytes. A truncated URL points
- * elsewhere, so drop those links and image candidates instead of failing the whole import.
- */
-function dropOversizedUrls(cards: unknown): unknown {
-  if (!Array.isArray(cards)) return cards;
-  return cards
-    .filter((c) => fitsUrl(c?.href))
-    .map((c) => (Array.isArray(c?.imgs) ? { ...c, imgs: c.imgs.filter((i: { src?: unknown } | null) => fitsUrl(i?.src)) } : c));
-}
-
-const bulkSchema = z.object({
-  page: z.string().max(MAX_URL),
-  title: z.string().max(300).optional(),
-  // Current bookmarklet: links with their surrounding card, section heading and image candidates.
-  cards: z
-    .preprocess(
-      dropOversizedUrls,
-      z
-        .array(
-          z.object({
-            href: z.string().max(MAX_URL),
-            text: z.string().max(500),
-            context: z.string().max(1000),
-            section: z.string().max(200),
-            imgs: z.array(z.object({ src: z.string().max(MAX_URL), alt: z.string().max(300) })).max(6),
-            page: z.number().int().min(1).max(20),
-          }),
-        )
-        .max(2000),
-    )
-    .optional(),
-  // Older bookmarklets saved before the card format.
-  links: z.array(z.object({ href: z.string().max(2000), text: z.string().max(500), img: z.string().max(2000).nullable().optional() })).max(3000).optional(),
-  text: z.string().max(60_000).optional(),
-});
 
 /** Payload posted from the bookmarklet's receiver page. */
 export async function importBulkAction(payload: z.infer<typeof bulkSchema>): Promise<ActionResult<ImportReport>> {
@@ -235,7 +187,7 @@ export async function importBulkAction(payload: z.infer<typeof bulkSchema>): Pro
     // Ownership context is required before AI reads the cards; code verifies its selections.
     const read = await readPurchaseHistory(cards, data.page, data.title ?? "", MAX_ITEMS_PER_IMPORT);
     const candidates = read.products;
-    if (candidates.length === 0) throw new Error("このページから購入した商品が見つかりませんでした。購入履歴・ライブラリのページで実行してください");
+    if (candidates.length === 0) throw new UserError("このページから購入した商品が見つかりませんでした。購入履歴・ライブラリのページで実行してください");
     const report = await importCandidates(uid, candidates, "bulk", profile.defaultVisibility);
     revalidatePath("/import/review");
     return { ...report, detected: read.products.length, excluded: read.excluded, recovered: read.recovered, notes: read.notes };
@@ -331,8 +283,8 @@ export async function fixItemTitleAction(id: string, rawTitle: string): Promise<
   return attempt(async () => {
     const title = z.string().trim().min(1, "商品名を入力してください").max(200).parse(rawTitle);
     const item = await getItem(z.string().min(1).parse(id));
-    if (!item || item.ownerUid !== uid) throw new Error("not found");
-    if (!lacksProductInfo(item)) throw new Error("この作品は商品情報を取得済みです");
+    if (!item || item.ownerUid !== uid) throw new UserError("not found");
+    if (!lacksProductInfo(item)) throw new UserError("この作品は商品情報を取得済みです");
     const productUrl = item.urlIsSearch ? null : (publicProductUrl(item.url) ?? (!isLoginWallTitle(item.title) && looksLikeProductUrl(item.url) ? item.url : null));
     if (productUrl) {
       const info = detectShop(productUrl);
@@ -378,7 +330,7 @@ export async function reactToReviewAction(
     const item = await getItem(z.string().min(1).parse(itemId));
     const following = item ? await isFollowing(uid, item.ownerUid) : false;
     if (!item || !canSeeItem(item, { viewerUid: uid, viewerProfile: profile, following }) || (item.isAdult && !canSeeAdult(profile))) {
-      throw new Error("口コミが見つかりません");
+      throw new UserError("口コミが見つかりません");
     }
     return setReaction(uid, item.id, v);
   });
@@ -400,7 +352,7 @@ export async function applyBioAction(input: { text: string; adultText?: string |
   const { uid, profile } = await requireProfile();
   return attempt(async () => {
     const draft = profile.aiBioDraft;
-    if (!draft) throw new Error("下書きがありません");
+    if (!draft) throw new UserError("下書きがありません");
     const text = z.string().trim().min(1).max(400).parse(input.text);
     const adult = draft.adult && input.adultText ? { ...draft.adult, text: z.string().trim().min(1).max(400).parse(input.adultText) } : null;
     await updateUser(uid, { aiBio: { ...draft, text, adult }, aiBioDraft: null });
@@ -411,9 +363,9 @@ export async function applyBioAction(input: { text: string; adultText?: string |
 export async function analyzeCompatAction(targetUid: string, force = false): Promise<ActionResult<Compatibility>> {
   const { uid, profile } = await requireProfile();
   return attempt(async () => {
-    if (targetUid === uid) throw new Error("自分自身とは比較できません");
+    if (targetUid === uid) throw new UserError("自分自身とは比較できません");
     const target = await getUser(targetUid);
-    if (!target) throw new Error("ユーザーが見つかりません");
+    if (!target) throw new UserError("ユーザーが見つかりません");
     if (!force) {
       const cached = await getCachedCompatibility(profile, target);
       if (cached && Date.now() - cached.generatedAt < 1000 * 60 * 60 * 24) return cached;
@@ -427,7 +379,7 @@ export async function twinChatAction(handle: string, history: ChatTurn[], messag
   const { uid, profile } = await requireProfile();
   return attempt(async () => {
     const owner = await getUserByHandle(handle);
-    if (!owner || !owner.twinEnabled) throw new Error("この人の分身は公開されていません");
+    if (!owner || !owner.twinEnabled) throw new UserError("この人の分身は公開されていません");
     const msg = z.string().trim().min(1).max(500).parse(message);
     const hist = z.array(z.object({ role: z.enum(["user", "twin"]), text: z.string().max(2000) })).max(20).parse(history);
     await consumeQuota(uid, "twin");
@@ -450,7 +402,7 @@ export async function runWatcherNowAction(): Promise<ActionResult<{ summary: str
 export async function deleteAccountAction(confirmHandle: string): Promise<ActionResult> {
   const { uid, profile } = await requireProfile();
   const res = await attempt(async () => {
-    if (confirmHandle.trim().replace(/^@/, "").toLowerCase() !== profile.handle) throw new Error("ハンドルが一致しません");
+    if (confirmHandle.trim().replace(/^@/, "").toLowerCase() !== profile.handle) throw new UserError("ハンドルが一致しません");
     await deleteAccount(uid);
     (await cookies()).delete(SESSION_COOKIE);
   });

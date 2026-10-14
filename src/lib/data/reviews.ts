@@ -1,4 +1,5 @@
 import "server-only";
+import { UserError } from "../user-error";
 import { FieldValue, type DocumentReference } from "firebase-admin/firestore";
 import { db } from "../firebase-admin";
 import type { ItemReview, ReviewReaction } from "../types";
@@ -26,7 +27,7 @@ export async function setReview(ownerUid: string, itemId: string, input: { ratin
   const ref = itemRef(itemId);
   const textCleared = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
-    if (!snap.exists || snap.get("ownerUid") !== ownerUid || snap.get("status") !== "published") throw new Error("作品が見つかりません");
+    if (!snap.exists || snap.get("ownerUid") !== ownerUid || snap.get("status") !== "published") throw new UserError("作品が見つかりません");
     const prev = snap.get("review") as ItemReview | null | undefined;
     // Reactions judged the old text; once the text is cleared there is nothing left to react to.
     const keepCounts = !!prev && !!input.text;
@@ -47,7 +48,7 @@ export async function deleteReview(ownerUid: string, itemId: string) {
   const ref = itemRef(itemId);
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
-    if (!snap.exists || snap.get("ownerUid") !== ownerUid) throw new Error("作品が見つかりません");
+    if (!snap.exists || snap.get("ownerUid") !== ownerUid) throw new UserError("作品が見つかりません");
     tx.update(ref, { review: null });
   });
   await deleteReactionsForItems([itemId]);
@@ -63,8 +64,8 @@ export async function setReaction(uid: string, itemId: string, value: ReviewReac
   return db.runTransaction(async (tx) => {
     const [itemSnap, reactionSnap] = await Promise.all([tx.get(iRef), tx.get(rRef)]);
     const review = itemSnap.get("review") as ItemReview | null | undefined;
-    if (!itemSnap.exists || !review?.text) throw new Error("口コミが見つかりません");
-    if (itemSnap.get("ownerUid") === uid) throw new Error("自分の口コミにはリアクションできません");
+    if (!itemSnap.exists || !review?.text) throw new UserError("口コミが見つかりません");
+    if (itemSnap.get("ownerUid") === uid) throw new UserError("自分の口コミにはリアクションできません");
     const prev = reactionSnap.exists ? (reactionSnap.get("value") as ReviewReaction) : null;
     const counts = { helpful: review.helpful ?? 0, unhelpful: review.unhelpful ?? 0 };
     if (prev === value) return { ...counts, mine: prev };

@@ -1,4 +1,5 @@
 import "server-only";
+import { UserError } from "../../user-error";
 import { FunctionTool, LlmAgent } from "@google/adk";
 import { z } from "zod";
 import { Type, type Schema } from "@google/genai";
@@ -138,7 +139,7 @@ async function backfillAdultGenres(items: Item[]): Promise<Item[]> {
  */
 export async function generateBio(uid: string): Promise<{ bio: AiBio; steps: AgentStep[]; adultNote: string | null }> {
   const [loaded, owner] = await Promise.all([listShelf(uid), getUser(uid)]);
-  if (!owner) throw new Error("プロフィールが見つかりません");
+  if (!owner) throw new UserError("プロフィールが見つかりません");
   const adultAllowed = owner.isAdult && owner.aiUseAdult;
   const shelf = adultAllowed ? await backfillAdultGenres(loaded) : loaded;
 
@@ -147,14 +148,14 @@ export async function generateBio(uid: string): Promise<{ bio: AiBio; steps: Age
   const publicAdult = withAdult.filter((i) => i.isAdult);
 
   if (safe.length === 0 && publicAdult.length === 0) {
-    throw new Error(
+    throw new UserError(
       shelf.length > 0
         ? "AIは「全体公開」の作品だけを読みます。「棚の編集」で、紹介に使ってよい作品の公開範囲を「全体公開」にしてください。"
         : "自己紹介を作るには、棚に作品を公開してください。",
     );
   }
   if (safe.length === 0 && !adultAllowed) {
-    throw new Error("全体公開の作品が成人向けだけです。設定で「自分の成人向け作品をAIの自己紹介・分身・相性分析に使う」をONにすると、成人向け作品のジャンル・タグから自己紹介文を作れます。");
+    throw new UserError("全体公開の作品が成人向けだけです。設定で「自分の成人向け作品をAIの自己紹介・分身・相性分析に使う」をONにすると、成人向け作品のジャンル・タグから自己紹介文を作れます。");
   }
 
   // Version B (shown to everyone who hasn't opted in to R18): from non-R18 items, or a neutral greeting.
@@ -179,7 +180,7 @@ export async function generateBio(uid: string): Promise<{ bio: AiBio; steps: Age
       // Safety filters may block it; version B still works.
       adultNote = "成人向け作品を含む版は、AIの安全フィルタにより作成できませんでした。";
     }
-    if (safe.length === 0 && !adult) throw new Error(adultNote ?? "自己紹介文を作成できませんでした");
+    if (safe.length === 0 && !adult) throw new UserError(adultNote ?? "自己紹介文を作成できませんでした");
   }
   if (safe.length === 0) {
     adultNote = [adultNote, "全体公開の作品が成人向けだけなので、成人向け表示がOFFの人には汎用のあいさつ文（通常版）を表示します。自由に書き換えられます。"].filter(Boolean).join(" ");
