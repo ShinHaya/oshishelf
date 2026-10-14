@@ -9,7 +9,7 @@
 - [ ] **システムアーキテクチャ図の画像**: [提出用PNG](architecture.png)（1600 × 1020 px）
 - [ ] **デモ動画 URL**: https://youtu.be/o4LUiTS3IsU （YouTube公開済み、約3分、日本語字幕付き。提出フォームへの登録は未確認）
   - [確定台本](demo-video-script.md) / [撮影と公開の記録](demo-video-production.md)
-- [ ] **Zenn 記事 URL**（任意・カテゴリ「Idea」で公開）: 下書きは `docs/zenn-article.md`
+- [x] **Zenn 記事 URL**（任意・カテゴリ「Idea」で公開）: https://zenn.dev/sinhayasaka/articles/0beb2b047542c2 （2026年10月14日公開、プロジェクト紹介欄へ保存済み。[公開記録](zenn-publication.md)）
 
 ## 審査用の操作手順
 
