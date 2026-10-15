@@ -39,6 +39,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: node --test .github/scripts/*.test.mjs
+      - name: Check Issue tooling shell scripts
+        run: shellcheck .githooks/pre-commit scripts/issue-worktree.sh scripts/setup-hooks.sh scripts/test-issue-worktree.sh
       - run: pnpm check
       - run: pnpm build
 

@@ -10,7 +10,10 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "pnpm lint && pnpm typecheck && pnpm test"
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:orchestrator && pnpm test:worktree",
+    "test:orchestrator": "node --test --test-concurrency=2 tests/unit/*.test.mjs",
+    "test:worktree": "bash scripts/test-issue-worktree.sh",
+    "setup:hooks": "bash scripts/setup-hooks.sh"
   },
   "dependencies": {
     "@google/adk": "^2.2.0",
@@ -25,6 +28,9 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@langchain/core": "^1.2.17",
+    "@langchain/langgraph": "^1.5.0",
+    "@langchain/langgraph-checkpoint": "^1.2.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -34,7 +40,8 @@
     "happy-dom": "^20.14.5",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.3",
+    "yaml": "^2.9.1"
   },
   "packageManager": "pnpm@10.27.0"
 }
