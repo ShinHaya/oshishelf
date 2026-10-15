@@ -20,3 +20,12 @@ run "reject_other_staging_image" {
   }
   expect_failures = [google_cloud_run_v2_service.app]
 }
+run "diagnostics_cannot_manage_infrastructure_or_read_user_data" {
+  command = plan
+  assert {
+    condition = alltrue([for grant in google_project_iam_member.ai_diagnostics : contains([
+      "roles/logging.viewer", "roles/cloudasset.viewer", "roles/run.viewer", "roles/serviceusage.serviceUsageViewer"
+    ], grant.role) && grant.project == var.project_id])
+    error_message = "AI diagnostics must stay within staging metadata/log readers; no admin, document or object data roles."
+  }
+}

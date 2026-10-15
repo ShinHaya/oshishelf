@@ -125,13 +125,14 @@ OIDCはリポジトリと所有者の数値ID、`develop`のrefとworkflowパス
 | 主体 | 権限と目的 |
 | --- | --- |
 | staging-app | 同プロジェクトのFirestore、Firebase Auth、Vertex AI。計測バケットのオブジェクト操作、プロンプト読み取り |
-| staging-ai-test | IAPアクセスのみ。Firestore、インフラ管理、デプロイ権限なし |
+| staging-ai-test | IAPアクセスと、同ステージングのログ、リソース構成、Cloud Run、API状態の読み取り。Firestoreの作品データ、インフラ管理、デプロイ権限なし |
 | staging-deploy | 対象Artifact Registryへのイメージpushのみ |
 | staging-terraform | 新規ステージング内のサービス構成とIAM管理。課金管理や既存本番の権限なし |
 
 TerraformはIAMの管理に必要な権限を持ち、自身の権限も変更できる強い主体である。
 そのためAIテストへ偽装権限を付与しない。
-運営者にはAIテストSAのIDトークン作成権限だけを付与する。
+運営者にはAIテストSAの短命アクセストークンとIDトークンの作成権限を付与する。
+署名（signBlob／signJwt）や鍵作成の権限は付与しない。
 
 ## IAPとアプリのログイン確認
 
@@ -161,6 +162,44 @@ IAPトークンをFirebase IDトークンとして送ったり、テストSAのc
 
 cronは構築対象に含めない。
 既存のアプリ内OIDC検証は維持しており、後からSchedulerを追加する際はIAP認証とcronのaudience検証の両方を確認する。
+
+## apply失敗時のAIによる診断
+
+Terraform applyが失敗した場合、AIはGitHub Actionsのログだけで原因を断定しない。
+失敗したrunのSHA、対象プロジェクトID、リソースアドレス、APIエラー、時刻を特定した後、同じ新規ステージングのCloud Loggingと実リソースを直接確認する。
+実リソースが部分的に作成された可能性もあるため、再apply前に現状とstateの差を調べる。
+認証や権限で直接確認できなければ、そのエラーと未確認項目を報告し、確認済みとして扱わない。
+
+AIの直接調査では`staging-ai-test`を偽装し、Terraform用やアプリ用のSAを使わない。
+AI用SAにはCloud Loggingの通常ログ、Cloud Assetの構成メタデータ、Cloud Runの構成、API有効化状態の読み取りを付与する。
+Data Access監査ログを読むPrivate Logs Viewer、Firestoreのドキュメント読み取り、Storageのオブジェクト読み取りや更新、IAM変更は付与しない。
+Cloud Asset APIとLogging APIはbootstrapで有効化する。
+
+以下は読み取り専用の調査例である。
+`PROJECT_ID`はbootstrapで作成したステージングIDと照合し、失敗時刻付近に期間を絞る。
+
+```bash
+DIAGNOSTIC_SA="staging-ai-test@${PROJECT_ID}.iam.gserviceaccount.com"
+gcloud logging read 'severity>=ERROR' --project="$PROJECT_ID" \
+  --impersonate-service-account="$DIAGNOSTIC_SA" --freshness=1h --limit=50 \
+  --format='json(timestamp,resource.type,protoPayload.methodName,protoPayload.status)'
+gcloud asset search-all-resources --scope="projects/${PROJECT_ID}" \
+  --impersonate-service-account="$DIAGNOSTIC_SA" \
+  --format='table(assetType,name,location,state)'
+gcloud run services describe oshishelf-staging --region=asia-northeast1 \
+  --project="$PROJECT_ID" --impersonate-service-account="$DIAGNOSTIC_SA" \
+  --format='yaml(metadata.name,status.conditions,status.latestReadyRevisionName,status.url)'
+gcloud services list --enabled --project="$PROJECT_ID" \
+  --impersonate-service-account="$DIAGNOSTIC_SA" --format='value(config.name)'
+```
+
+ログが0件でも、リクエストが到達していない場合やログの遅延があるため、正常の証拠にはしない。
+必要に応じて対象リソースやAPI名で期間内の監査ログを絞り込む。
+ログの生本文や環境変数全体をPRへ貼らず、認証情報と個人情報を除いたエラーコード、対象リソース、状態を記録する。
+
+AIはソースの修正後に、通常のレビューとステージングActionsを通して再plan/applyする。
+診断用SAによる直接修復、既存本番の調査への切り替え、無条件の再試行、state削除やforce-unlockは行わない。
+bootstrap自体が失敗して診断SAが存在しない場合は、運営者の読み取りによる確認結果を取得するか、認証不足として具体的に報告する。
 
 ## 計測の保存費用と保持
 

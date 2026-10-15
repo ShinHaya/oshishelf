@@ -30,7 +30,7 @@ resource "google_project" "staging" {
   deletion_policy = "PREVENT"
 }
 locals {
-  apis = toset(["serviceusage.googleapis.com", "cloudresourcemanager.googleapis.com", "iam.googleapis.com", "iamcredentials.googleapis.com", "sts.googleapis.com", "storage.googleapis.com", "run.googleapis.com", "artifactregistry.googleapis.com", "firestore.googleapis.com", "firebase.googleapis.com", "identitytoolkit.googleapis.com", "aiplatform.googleapis.com", "iap.googleapis.com", "firebaserules.googleapis.com"])
+  apis = toset(["serviceusage.googleapis.com", "cloudresourcemanager.googleapis.com", "iam.googleapis.com", "iamcredentials.googleapis.com", "sts.googleapis.com", "storage.googleapis.com", "run.googleapis.com", "artifactregistry.googleapis.com", "firestore.googleapis.com", "firebase.googleapis.com", "identitytoolkit.googleapis.com", "aiplatform.googleapis.com", "iap.googleapis.com", "firebaserules.googleapis.com", "logging.googleapis.com", "cloudasset.googleapis.com"])
 }
 resource "google_project_service" "api" {
   for_each           = local.apis
@@ -104,4 +104,12 @@ resource "google_project_service_identity" "iap" {
   project    = google_project.staging.project_id
   service    = "iap.googleapis.com"
   depends_on = [google_project_service.api]
+}
+
+# Permit short-lived diagnostic credentials without signBlob/signJwt or key creation.
+resource "google_project_iam_custom_role" "diagnostic_tokens" {
+  project     = google_project.staging.project_id
+  role_id     = "stagingDiagnosticTokenMinter"
+  title       = "Staging diagnostic token minter"
+  permissions = ["iam.serviceAccounts.getAccessToken", "iam.serviceAccounts.getOpenIdToken"]
 }

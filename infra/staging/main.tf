@@ -59,7 +59,7 @@ resource "google_service_account_iam_member" "act_as" {
 }
 resource "google_service_account_iam_member" "test_token" {
   service_account_id = google_service_account.ai_test.name
-  role               = "roles/iam.serviceAccountOpenIdTokenCreator"
+  role               = "projects/${var.project_id}/roles/stagingDiagnosticTokenMinter"
   member             = "user:${var.operator_email}"
 }
 resource "google_artifact_registry_repository" "app" {
@@ -216,4 +216,11 @@ resource "google_firebaserules_release" "deny_clients" {
   name         = "cloud.firestore"
   ruleset_name = google_firebaserules_ruleset.deny_clients.name
   depends_on   = [google_firestore_database.app]
+}
+
+resource "google_project_iam_member" "ai_diagnostics" {
+  for_each = toset(["roles/logging.viewer", "roles/cloudasset.viewer", "roles/run.viewer", "roles/serviceusage.serviceUsageViewer"])
+  project  = var.project_id
+  role     = each.value
+  member   = "serviceAccount:${google_service_account.ai_test.email}"
 }
