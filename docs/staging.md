@@ -163,6 +163,22 @@ Googleの説明ページのTerraform例にある`oauth_client_id`等をそのま
 非公開GCS stateの権限を運営者とTerraform主体に限定し、ローカルplanは600、CIのplanは一時ファイルとして扱い、成果物として公開しない。
 Actionsではシークレットをplanステップのみに渡し、イメージビルドの環境へ渡さない。
 
+## develop反映前のOAuth専用bootstrap
+
+通常のデプロイworkflowがdevelopへ未反映の間は、`staging-oauth-bootstrap.yml`で初回のIAP設定だけを適用できる。
+GitHub SecretはAPIで読み戻せないため、シークレットをローカルへコピーせずActions内で利用する。
+この例外はリポジトリと所有者の数値IDに加え、運営者のactor ID、staging Environment、正確なworkflowパス、作業ブランチ、レビュー済みのcommit SHAに限定する。
+bootstrap変数`oauth_bootstrap_sha`の既定値は空であり、明示的に対象commitを設定した場合だけ一時的に許可される。
+
+1. workflowと公開クライアントIDの差分をレビューしてコミットする。
+2. bootstrapの`oauth_bootstrap_sha`にその40桁SHAを渡し、planがWIF条件の更新だけであることを確認してapplyする。
+3. staging Environmentの許可ブランチに`issue-49-staging-terraform`を一時追加し、対象commitをpushする。required reviewerは維持する。
+4. 運営者がActionsのEnvironment承認を行う。workflowは保存済みのイメージを読み取り、`google_iap_settings.oauth`のみをtargetとするplanを作る。機械的なplan検査でOAuth設定1件のcreate以外を拒否し、アプリの再配置や他のインフラ変更を行わない。
+5. 成功後は`oauth_bootstrap_sha`を空に戻してapplyし、一時的な許可ブランチも削除する。通常のdevelop連携だけを残す。
+
+このworkflowは初回作成専用であり、すでに管理しているOAuth設定の更新や再実行には使わない。
+失敗した場合もSHA制限やEnvironment承認を外して回避せず、ログと実リソースを確認する。
+
 ## Actionsと権限の境界
 
 `develop`へワークフローを反映し、GitHub Environment `staging`を作成する。

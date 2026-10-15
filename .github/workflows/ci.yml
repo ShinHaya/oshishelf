@@ -45,6 +45,7 @@ jobs:
       - run: terraform fmt -check -recursive infra
       - run: terraform -chdir=infra/bootstrap init -backend=false -input=false
       - run: terraform -chdir=infra/bootstrap validate
+      - run: terraform -chdir=infra/bootstrap test
       - run: terraform -chdir=infra/staging init -backend=false -input=false
       - run: terraform -chdir=infra/staging validate
       - run: terraform -chdir=infra/staging test

@@ -23,6 +23,15 @@ variable "repository_owner_id" {
   description = "Immutable numeric GitHub owner ID"
 }
 variable "deployment_branch" { default = "develop" }
+variable "oauth_bootstrap_sha" {
+  type        = string
+  default     = ""
+  description = "Temporary reviewed commit SHA for the initial OAuth-only workflow; clear immediately after use."
+  validation {
+    condition     = var.oauth_bootstrap_sha == "" || can(regex("^[0-9a-f]{40}$", var.oauth_bootstrap_sha))
+    error_message = "Use an immutable 40-character commit SHA or an empty string to disable bootstrap."
+  }
+}
 resource "google_project" "staging" {
   project_id      = var.project_id
   name            = "OshiShelf staging"
@@ -83,8 +92,9 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "google.subject"          = "assertion.sub"
     "attribute.repository_id" = "assertion.repository_id"
   }
-  # Only the reviewed deployment workflow on a trusted branch, never PR code/forks.
-  attribute_condition = "assertion.repository_id == '${var.repository_id}' && assertion.repository_owner_id == '${var.repository_owner_id}' && assertion.ref == 'refs/heads/${var.deployment_branch}' && assertion.workflow_ref == 'ShinHaya/oshishelf/.github/workflows/staging.yml@refs/heads/${var.deployment_branch}'"
+  # Normal deployment trusts develop. The bootstrap exception additionally pins
+  # one reviewed commit, the operator and the protected staging environment.
+  attribute_condition = "assertion.repository_id == '${var.repository_id}' && assertion.repository_owner_id == '${var.repository_owner_id}' && ((assertion.ref == 'refs/heads/${var.deployment_branch}' && assertion.workflow_ref == 'ShinHaya/oshishelf/.github/workflows/staging.yml@refs/heads/${var.deployment_branch}') || (${var.oauth_bootstrap_sha != ""} && assertion.sha == '${var.oauth_bootstrap_sha}' && assertion.actor_id == '23278980' && assertion.environment == 'staging' && assertion.ref == 'refs/heads/issue-49-staging-terraform' && assertion.workflow_ref == 'ShinHaya/oshishelf/.github/workflows/staging-oauth-bootstrap.yml@refs/heads/issue-49-staging-terraform'))"
   oidc { issuer_uri = "https://token.actions.githubusercontent.com" }
 }
 resource "google_service_account_iam_member" "github" {

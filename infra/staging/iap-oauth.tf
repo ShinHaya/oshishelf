@@ -3,7 +3,7 @@
 # Manage the IAP attachment here; never use the retired google_iap_brand/client API.
 variable "iap_oauth_client_id" {
   type        = string
-  default     = ""
+  default     = "698676314360-ttjgvu7osm7odcvhek450fhooi8keq0v.apps.googleusercontent.com"
   description = "Pre-created Google Account web OAuth client ID; commit the public ID as this default after one-time bootstrap."
   validation {
     condition     = var.iap_oauth_client_id == "" || can(regex("^[0-9]+-[a-zA-Z0-9_-]+\\.apps\\.googleusercontent\\.com$", var.iap_oauth_client_id))
