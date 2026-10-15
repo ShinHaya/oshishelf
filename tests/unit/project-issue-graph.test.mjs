@@ -1,4 +1,5 @@
 import test from "node:test";
+import { freshCheckoutEnv } from "../helpers/fresh-checkout.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -1109,6 +1110,7 @@ test("the graph CLI starts, pauses, and resumes across separate processes", asyn
     }),
   );
   const script = new URL("../../scripts/project-issue-graph.mjs", import.meta.url).pathname;
+  const options = { env: await freshCheckoutEnv(directory) };
   try {
     const started = await execFileAsync(process.execPath, [
       script,
@@ -1131,7 +1133,7 @@ test("the graph CLI starts, pauses, and resumes across separate processes", asyn
       "--auto-assign",
       "--triage",
       "off",
-    ]);
+    ], options);
     const paused = JSON.parse(started.stdout);
     assert.equal(paused.status, "paused");
     assert.equal(paused.dispatchInstructions.length, 1);
@@ -1152,13 +1154,13 @@ test("the graph CLI starts, pauses, and resumes across separate processes", asyn
     ];
     await execFileAsync(
       process.execPath,
-      resumeArgs({ type: "role-complete", issue: 1, role: "implementer" }),
+      resumeArgs({ type: "role-complete", issue: 1, role: "implementer" }), options,
     );
     await execFileAsync(
       process.execPath,
-      resumeArgs({ type: "role-complete", issue: 1, role: "reviewer", verdict: "PASS" }),
+      resumeArgs({ type: "role-complete", issue: 1, role: "reviewer", verdict: "PASS" }), options,
     );
-    const finished = await execFileAsync(process.execPath, resumeArgs({ accepted: true }));
+    const finished = await execFileAsync(process.execPath, resumeArgs({ accepted: true }), options);
     const result = JSON.parse(finished.stdout);
     assert.equal(result.status, "complete");
     assert.deepEqual(result.summary.completed, [1]);

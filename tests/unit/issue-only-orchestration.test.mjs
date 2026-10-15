@@ -1,4 +1,5 @@
 import test from "node:test";
+import { freshCheckoutEnv } from "../helpers/fresh-checkout.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile, chmod, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -81,7 +82,7 @@ test("CLI plans from Issue numbers and a run-only config, stripping unrelated ke
     "scripts/project-issue-orchestrator.mjs", "--issues", "1", "--dry-run", "--config", config,
     "--capabilities-file", capabilities, "--parent-agent", "Codex", "--parent-model", "fixture-parent",
   ], { cwd: path.resolve(import.meta.dirname, "../.."), env: {
-    ...process.env, PATH: `${dir}:${process.env.PATH}`, TYPESAFE_API_KEY: "fake-key", GH_PROJECT_TOKEN: "fake-project-key", GITHUB_REPOSITORY: "example-org/example-repo",
+    ...await freshCheckoutEnv(dir), TYPESAFE_API_KEY: "fake-key", GH_PROJECT_TOKEN: "fake-project-key", GITHUB_REPOSITORY: "example-org/example-repo",
   } });
   const result = JSON.parse(stdout);
   assert.equal(result.plan.runnable[0].number, 1);
