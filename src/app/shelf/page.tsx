@@ -4,7 +4,6 @@ import { requireProfile } from "@/lib/session";
 import { listShelf } from "@/lib/data/items";
 import { getShelfCategories } from "@/lib/data/users";
 import { ItemManager } from "@/components/item-manager";
-import { canSeeAdult } from "@/lib/access";
 
 export const metadata: Metadata = { title: "棚の編集" };
 
@@ -24,7 +23,7 @@ export default async function ShelfPage() {
           棚を見る
         </Link>
       </div>
-      <ItemManager items={items} mode="published" canAdult={canSeeAdult(profile)} shelfCategories={shelfCategories} />
+      <ItemManager items={items} mode="published" canAdult={true} shelfCategories={shelfCategories} />
     </div>
   );
 }

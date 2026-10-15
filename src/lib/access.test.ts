@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adultAiAllowed, aiItems, aiSafeItems, canSeeAdult, canSeeItem, canWishItem, resolveWishes } from "./access";
+import { adultAiAllowed, aiItems, aiSafeItems, canSeeAdult, canSeeItemAdult, canSeeItem, canWishItem, resolveWishes } from "./access";
 import type { Item, Wish } from "./types";
 import { makeItem, makeProfile } from "./test-fixtures";
 
@@ -146,5 +146,18 @@ describe("独自カテゴリーとAI入力", () => {
 
   it("通常作品の独自カテゴリーもAIの分類には使わない", () => {
     expect(aiItems([makeItem({ shelfCategory: "積読" })], false)[0].shelfCategory).toBeNull();
+  });
+});
+
+describe("棚の成人向け表示", () => {
+  it("所有者は表示設定がOFFでも自分の成人向け作品を見られる", () => {
+    expect(canSeeItemAdult(makeItem({ isAdult: true }), "owner", makeProfile({ isAdult: false, showAdult: false }))).toBe(true);
+  });
+  it("他の人の作品には成人申告と表示同意の両方を要求する", () => {
+    for (const isAdult of [false, true]) for (const showAdult of [false, true]) {
+      expect(canSeeItemAdult(makeItem({ isAdult: true }), "viewer", makeProfile({ isAdult, showAdult }))).toBe(isAdult && showAdult);
+    }
+    expect(canSeeItemAdult(makeItem({ isAdult: true }), null, null)).toBe(false);
+    expect(canSeeItemAdult(makeItem(), null, null)).toBe(true);
   });
 });
