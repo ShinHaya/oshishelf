@@ -11,7 +11,15 @@ const eslintConfig = defineConfig([
       "@next/next/no-img-element": "off",
     },
   },
-  globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts", "public/bookmarklet.js"]),
+  {
+    files: ["scripts/project-issue-*.mjs", "tests/unit/*.mjs"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": ["warn", {
+        argsIgnorePattern: "^_", varsIgnorePattern: "^_", ignoreRestSiblings: true,
+      }],
+    },
+  },
+  globalIgnores([".worktrees/**", "state/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "public/bookmarklet.js"]),
 ]);
 
 export default eslintConfig;

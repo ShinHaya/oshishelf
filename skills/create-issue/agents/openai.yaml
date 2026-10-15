@@ -1,0 +1,6 @@
+interface:
+  display_name: "Create Issue"
+  short_description: "Create Issues with labels and dependencies"
+  default_prompt: "Use $create-issue to draft an Issue with labels and native Issue dependencies, without GitHub Projects."
+policy:
+  allow_implicit_invocation: true

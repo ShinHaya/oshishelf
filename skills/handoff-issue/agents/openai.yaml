@@ -1,0 +1,4 @@
+interface:
+  display_name: "Handoff Issue"
+  short_description: "Safely resume an existing Issue worktree in a new agent session"
+  default_prompt: "Use $handoff-issue with one Issue number to inspect and safely take over its existing worktree."

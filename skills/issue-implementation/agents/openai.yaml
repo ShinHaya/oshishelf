@@ -1,0 +1,4 @@
+interface:
+  display_name: "Issue Implementation"
+  short_description: "Implement one Issue with local review"
+  default_prompt: "Use $issue-implementation with Issue #139 to implement the requested GitHub Issue."

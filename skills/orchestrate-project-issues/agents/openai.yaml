@@ -1,0 +1,4 @@
+interface:
+  display_name: "Orchestrate Issues"
+  short_description: "Coordinate dependency-safe AI Issue implementation"
+  default_prompt: "Use $orchestrate-project-issues to dry-run and coordinate explicit Issue numbers, without GitHub Projects."
