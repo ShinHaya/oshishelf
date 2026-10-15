@@ -1,3 +1,4 @@
+import { parseParentWorkerMode } from "./project-issue-parent-usage.mjs";
 import { normalizeTriageConfig } from "./project-issue-triage-contract.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -52,12 +53,6 @@ function parseUnavailableAgents(value) {
   return value.map((agent) => agent.trim());
 }
 
-/** Opt-in: the parent runtime may also receive worker routes. */
-function parseParentAsWorker(value) {
-  if (typeof value !== "boolean") fail("config-invalid-parent-as-worker");
-  return value;
-}
-
 function normalizeDocument(document) {
   if (document.errors.length) fail("config-invalid-yaml");
   const root = assertObject(document.toJS(), "config-invalid-root");
@@ -86,7 +81,8 @@ function normalizeDocument(document) {
     releasePolicy,
     unavailableModels: parseUnavailableModels(run.unavailableModels),
     unavailableAgents: parseUnavailableAgents(run.unavailableAgents ?? "none"),
-    parentAsWorker: parseParentAsWorker(run.parentAsWorker ?? false),
+    // auto | always | never; legacy booleans map onto auto/always.
+    parentAsWorker: parseParentWorkerMode(run.parentAsWorker),
   };
 }
 
@@ -114,5 +110,6 @@ export function mergeOrchestratorConfig({ defaults = {}, yaml = {}, cli = {} } =
     merged.unavailableModels = parseUnavailableModels(merged.unavailableModels);
   if (typeof merged.unavailableAgents === "string")
     merged.unavailableAgents = parseUnavailableAgents(merged.unavailableAgents);
+  merged.parentAsWorker = parseParentWorkerMode(merged.parentAsWorker);
   return merged;
 }

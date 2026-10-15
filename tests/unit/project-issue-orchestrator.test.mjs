@@ -883,10 +883,10 @@ test("loads and normalizes the orchestrator YAML config", async () => {
     releasePolicy: "merged",
     unavailableModels: [],
     unavailableAgents: ["Codex"],
-    parentAsWorker: false,
+    parentAsWorker: "auto",
   });
   await writeFile(configPath, "run:\n  maxParallel: 1\n  releasePolicy: merged\n  unavailableModels: none\n  parentAsWorker: true\n");
-  assert.equal((await loadOrchestratorConfig(configPath, { cwd: directory })).parentAsWorker, true);
+  assert.equal((await loadOrchestratorConfig(configPath, { cwd: directory })).parentAsWorker, "always");
   await writeFile(configPath, "run:\n  maxParallel: 1\n  releasePolicy: merged\n  unavailableModels: none\n  parentAsWorker: yes please\n");
   await assert.rejects(loadOrchestratorConfig(configPath, { cwd: directory }), /config-invalid-parent-as-worker/);
 });
@@ -948,6 +948,7 @@ test("merges explicit CLI values over YAML values", () => {
       releasePolicy: "merged",
       unavailableModels: ["Fable"],
       unavailableAgents: ["Claude"],
+      parentAsWorker: "auto",
     },
   );
 });
@@ -1268,7 +1269,7 @@ test("parses the documented operational Project CLI flags", () => {
     },
   );
   assert.equal(parseCliArgs(["--parent-provider", "Claude"]).parentAgent, "Claude");
-  assert.equal(parseCliArgs(["--parent-as-worker"]).parentAsWorker, true);
+  assert.equal(parseCliArgs(["--parent-as-worker"]).parentAsWorker, "always");
   assert.throws(() => parseCliArgs(["--mystery"]), /unknown-flag:--mystery/);
 });
 

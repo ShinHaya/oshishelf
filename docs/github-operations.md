@@ -65,6 +65,8 @@ node scripts/project-issue-orchestrator.mjs --issues 123,124 --dry-run \
 ```
 
 設定の既定値は [設定例](../config/project-issue-orchestrator.example.yaml) を参照してください。
+親ランタイムは既定（`auto`）で、5時間利用枠が50%以上残る場合だけワーカー候補に加わります。
+残量を取得できない場合は加わりません。`--parent-worker-mode always|never` で固定できます。
 必要なら `state/project-issue-orchestrator.yaml` にコピーします。
 `state/` と `.worktrees/` はGit管理対象外です。
 TypeSafeへのIssue分類は既定でOFFです。
