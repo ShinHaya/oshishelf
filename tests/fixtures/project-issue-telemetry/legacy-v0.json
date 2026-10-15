@@ -1,0 +1,16 @@
+{
+  "version": 0,
+  "id": "evt-legacy-1",
+  "runId": "run-legacy-1",
+  "timestamp": "2026-07-21T00:00:00.000Z",
+  "eventType": "terminal_outcome",
+  "issue": 9002,
+  "data": {
+    "status": "failed",
+    "failureReasonCode": "timeout",
+    "prState": "not_created",
+    "humanIntervention": false,
+    "handoffCount": 0,
+    "wasteReasonCodes": ["timeout"]
+  }
+}

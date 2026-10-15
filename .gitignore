@@ -55,3 +55,8 @@ next-env.d.ts
 gha-creds-*.json
 
 /infra/bootstrap/backend.tf
+
+# Issue tooling local state
+/state/
+/.worktrees/
+.claude/settings.local.json
