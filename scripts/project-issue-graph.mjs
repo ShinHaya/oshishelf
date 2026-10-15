@@ -45,12 +45,19 @@ import {
 } from "@langchain/langgraph";
 
 import { DEFAULT_CAPABILITIES_OUTPUT, loadOrRefreshCapabilities, refreshWorkerRoutes, verifyWorkerRoute } from "./project-issue-capabilities.mjs";
+import { canonicalizeAgent } from "./project-issue-assignment.mjs";
 import {
   DEFAULT_CONFIG_PATH,
   loadOrchestratorConfig,
   mergeOrchestratorConfig,
 } from "./project-issue-config.mjs";
 import { fetchRepositoryIssues, repositoryIssueGraphql, fetchTriageRevision } from "./project-issue-github.mjs";
+import {
+  decideParentWorker,
+  parseParentWorkerMode,
+  readParentUsage,
+  resolveParentWorkerFlags,
+} from "./project-issue-parent-usage.mjs";
 import { loadAssistedApproval, loadApprovedRouteEvidence } from "./project-issue-triage-approval.mjs";
 import { createTriageRunner, createTriageState } from "./project-issue-triage-client.mjs";
 import { TRIAGE_POLICY, normalizeTriageConfig, normalizeTriageInput, triageContext, fallbackResult, parseTriageResult, parseTriageDecision } from "./project-issue-triage-contract.mjs";
@@ -166,6 +173,12 @@ export const OrchestrationState = Annotation.Root({
   capabilities: Annotation(),
   /** Run-scoped verified worker-route pool after unavailable exclusions. */
   workerRoutes: Annotation(),
+  /**
+   * Latest closed snapshot of the parent's 5-hour usage window (status,
+   * remainingPercent, windowDurationMins, fetchedAt, reason).
+   * Re-read before new assignments and handoffs; never a raw response.
+   */
+  parentUsage: Annotation(),
   /** Closed, non-sensitive shadow results; no Issue body or provider response text. */
   triageByIssue: Annotation({ reducer: mergeByIssue("issue"), default: () => [] }),
   triageNotice: Annotation(),
@@ -289,14 +302,38 @@ function expectedMilestone(state, issue) {
   return hasPrCreated ? "merged" : "pr-created";
 }
 
-/** Parent route options for every worker-pool computation: excluded by default, opted in by `parent.asWorker`. */
-function parentPoolOptions(config) {
-  return { parentAgent: config.parent.agent, parentAsWorker: config.parent.asWorker === true };
+/** Worker mode from config; legacy checkpoints carry `asWorker: true` instead. */
+function parentWorkerMode(config) {
+  const parent = config.parent;
+  return parseParentWorkerMode(parent.workerMode ?? (parent.asWorker === true ? true : undefined));
+}
+
+function parentWorkerDecisionFor(state) {
+  return decideParentWorker(parentWorkerMode(state.config), state.parentUsage);
+}
+
+/**
+ * Parent route options for every worker-pool computation. In auto mode the
+ * parent joins only while the last usage snapshot shows >= 50% of its 5-hour
+ * window left; an absent or unknown snapshot keeps it out.
+ */
+function parentPoolOptions(state) {
+  return { parentAgent: state.config.parent.agent, parentAsWorker: parentWorkerDecisionFor(state).eligible };
+}
+
+/** Fresh usage snapshot for auto mode; `{}` (keep state) for fixed modes. */
+async function refreshParentUsage(state, config) {
+  if (parentWorkerMode(state.config) !== "auto") return {};
+  const read = getDeps(config).readParentUsage;
+  const parentUsage = read
+    ? await read(state.config.parent.agent).catch(() => ({ status: "unknown", reason: "parent-usage-fetch-failed" }))
+    : { status: "unknown", reason: "parent-usage-unsupported-runtime" };
+  return { parentUsage };
 }
 
 function currentPool(state) {
   return selectWorkerRoutes(state.capabilities ?? [], {
-    ...parentPoolOptions(state.config),
+    ...parentPoolOptions(state),
     unavailableAgents: state.unavailableAgents,
     unavailableModels: state.unavailableModels,
   });
@@ -429,10 +466,27 @@ function awaitingReleaseMilestone(state) {
   );
 }
 
+/** Closed decision record: mode, verdict, reason code, exact remaining % and read time only. */
+function parentWorkerSummary(state) {
+  const mode = parentWorkerMode(state.config);
+  const usage = state.parentUsage;
+  return {
+    mode,
+    ...parentWorkerDecisionFor(state),
+    ...(mode === "auto" && usage?.status === "ok"
+      ? { remainingPercent: usage.remainingPercent, windowDurationMins: usage.windowDurationMins }
+      : {}),
+    ...(mode === "auto" && usage?.fetchedAt ? { fetchedAt: usage.fetchedAt } : {}),
+  };
+}
+
 export function buildSummary(state, runStatus) {
   const issueNumbers = (state.items ?? []).map(({ number }) => number);
   return {
-    routing: { parent: state.parentRouting ?? "verified" },
+    routing: {
+      parent: state.parentRouting ?? "verified",
+      ...(state.config?.parent ? { parentWorker: parentWorkerSummary(state) } : {}),
+    },
     runnable: (state.plan?.runnable ?? []).map(({ number }) => number),
     assignments: (state.assignments ?? []).map(({ number, agent, model }) => ({ number, agent, model })),
     blocked: state.plan?.blocked ?? [],
@@ -522,12 +576,13 @@ async function discoverCapabilitiesNode(state, config) {
     return { failureReason: error.message, parentRouting: "unavailable" };
   }
   try {
+    const usage = await refreshParentUsage(state, config);
     const workerRoutes = selectWorkerRoutes(capabilities, {
-      ...parentPoolOptions(state.config),
+      ...parentPoolOptions({ ...state, ...usage }),
       unavailableAgents: state.unavailableAgents,
       unavailableModels: state.unavailableModels,
     });
-    return { capabilities, workerRoutes, parentRouting: "verified" };
+    return { capabilities, workerRoutes, ...usage, parentRouting: "verified" };
   } catch (error) {
     return { failureReason: error.message, parentRouting: "verified" };
   }
@@ -597,7 +652,7 @@ async function refreshTriageRoutesNode(state, config) {
     const refreshed = await getDeps(config).refreshTriageRoutes(state);
     const capabilities = refreshed.capabilities;
     const workerRoutes = selectWorkerRoutes(capabilities, {
-      ...parentPoolOptions(state.config),
+      ...parentPoolOptions(state),
       unavailableAgents: state.unavailableAgents,
       unavailableModels: state.unavailableModels,
     });
@@ -927,7 +982,7 @@ async function preflightAssistedDispatchNode(state, config) {
       return { failureReason: "triage-route-refresh-failed" };
     }
     let pool = selectWorkerRoutes(refreshed.capabilities, {
-      ...parentPoolOptions(state.config), unavailableAgents: state.unavailableAgents,
+      ...parentPoolOptions(state), unavailableAgents: state.unavailableAgents,
       unavailableModels: state.unavailableModels,
     });
     if (!pool.length) return { failureReason: "no-worker-route-available" };
@@ -949,7 +1004,7 @@ async function preflightAssistedDispatchNode(state, config) {
         return { failureReason: "triage-route-refresh-failed" };
       }
       pool = selectWorkerRoutes(refreshed.capabilities, {
-        ...parentPoolOptions(state.config), unavailableAgents: state.unavailableAgents,
+        ...parentPoolOptions(state), unavailableAgents: state.unavailableAgents,
         unavailableModels: [...state.unavailableModels, ...unavailableModels],
       });
       if (!pool.length) return { failureReason: "no-worker-route-available" };
@@ -1031,7 +1086,7 @@ async function preflightTriageDispatchNode(state, config) {
     return {
       capabilities: refreshed.capabilities,
       pool: selectWorkerRoutes(refreshed.capabilities, {
-        ...parentPoolOptions(state.config),
+        ...parentPoolOptions(state),
         unavailableAgents: state.unavailableAgents,
         unavailableModels,
       }),
@@ -1514,6 +1569,37 @@ function selectHandoffRouteNode(state) {
   };
 }
 
+/**
+ * Re-judge the parent's worker eligibility right before new assignments and
+ * handoffs. Running workers keep their routes; only the next pick changes.
+ */
+async function refreshParentUsageNode(state, config) {
+  if (state.failureReason) return {};
+  return refreshParentUsage(state, config);
+}
+
+/**
+ * A manual assignment resumes inside `assign_routes` after its interrupt, so
+ * the snapshot read before the prompt may be stale by the time the operator
+ * answers. Re-read usage for any pending dispatch on the parent runtime; if
+ * the parent no longer qualifies, drop those assignments and re-prompt with
+ * the fresh pool instead of dispatching.
+ */
+async function confirmParentAssignmentsNode(state, config) {
+  if (state.failureReason || parentWorkerMode(state.config) !== "auto") return {};
+  const parentAgent = canonicalizeAgent(state.config.parent.agent);
+  const onParent = pendingDispatches(state).filter(({ agent }) => canonicalizeAgent(agent) === parentAgent);
+  if (!onParent.length) return {};
+  const usage = await refreshParentUsage(state, config);
+  const decision = parentWorkerDecisionFor({ ...state, ...usage });
+  if (decision.eligible) return usage;
+  return {
+    ...usage,
+    assignments: onParent.map(({ number }) => ({ number, remove: true })),
+    lastEventError: `invalid-assignment:${onParent[0].number}:${decision.reason}`,
+  };
+}
+
 function failRunNode(state) {
   return { runStatus: "failed", summary: buildSummary(state, "failed") };
 }
@@ -1568,13 +1654,13 @@ function waitRouter(state) {
   if (state.pendingGate) return "integration_gate";
   // A handoff keeps the legacy pool: shadow triage only observes new
   // selections, so a refresh failure must not stop interrupted-work recovery.
-  if ((state.pendingInterrupted ?? []).length) return "select_handoff_route";
+  if ((state.pendingInterrupted ?? []).length) return "refresh_handoff_parent_usage";
   // A finished role leaves the next role of the same Issue undispatched.
   // Only go back with free capacity, otherwise the run would ping-pong
   // between assign_routes and wait_for_events without pausing.
   const capacity = state.config.maxParallel - activeExecutions(state).length;
   if (capacity > 0 && dispatchCandidates(state).length)
-    return triageMode(state) === "shadow" ? "refresh_triage_routes" : "assign_routes";
+    return triageMode(state) === "shadow" ? "refresh_triage_routes" : "refresh_parent_usage";
   if (allComplete(state)) return "summarize_run";
   // Nothing is running and nothing can be dispatched (e.g. a role program
   // ran out of review budget): report the run as blocked instead of waiting
@@ -1605,13 +1691,16 @@ export function buildOrchestrationGraph({ checkpointer } = {}) {
     .addNode("refresh_triage_routes", refreshTriageRoutesNode)
     .addNode("prepare_triage", prepareTriageNode)
     .addNode("resolve_triage", resolveTriageNode)
+    .addNode("refresh_parent_usage", refreshParentUsageNode)
     .addNode("assign_routes", assignRoutesNode)
+    .addNode("confirm_parent_assignments", confirmParentAssignmentsNode)
     .addNode("preflight_triage_dispatch", preflightTriageDispatchNode)
     .addNode("dispatch_worker", dispatchWorkerNode)
     .addNode("wait_for_events", waitForEventsNode)
     .addNode("integration_gate", integrationGateNode)
     .addNode("release_dependents", releaseDependentsNode)
     .addNode("return_to_worker", returnToWorkerNode)
+    .addNode("refresh_handoff_parent_usage", refreshParentUsageNode)
     .addNode("select_handoff_route", selectHandoffRouteNode)
     .addNode("fail_run", failRunNode)
     .addNode("summarize_run", summarizeRunNode)
@@ -1621,12 +1710,15 @@ export function buildOrchestrationGraph({ checkpointer } = {}) {
     .addConditionalEdges("fetch_project_issues", failOr("validate_dependencies"))
     .addConditionalEdges("validate_dependencies", failOr("build_runnable_plan"))
     .addConditionalEdges("build_runnable_plan", (state) =>
-      failOr(triageMode(state) === "off" ? "assign_routes" : "refresh_triage_routes")(state))
+      failOr(triageMode(state) === "off" ? "refresh_parent_usage" : "refresh_triage_routes")(state))
     .addConditionalEdges("refresh_triage_routes", failOr("prepare_triage"))
     .addConditionalEdges("prepare_triage", failOr("resolve_triage"))
     .addConditionalEdges("resolve_triage", (state) => state.failureReason ? "fail_run" :
-      state.lastEventError?.startsWith("triage-") ? "resolve_triage" : "assign_routes")
-    .addConditionalEdges("assign_routes", assignmentRouter)
+      state.lastEventError?.startsWith("triage-") ? "resolve_triage" : "refresh_parent_usage")
+    .addConditionalEdges("refresh_parent_usage", failOr("assign_routes"))
+    .addConditionalEdges("refresh_handoff_parent_usage", failOr("select_handoff_route"))
+    .addConditionalEdges("assign_routes", failOr("confirm_parent_assignments"))
+    .addConditionalEdges("confirm_parent_assignments", assignmentRouter)
     .addConditionalEdges("preflight_triage_dispatch", triagePreflightRouter)
     .addEdge("dispatch_worker", "wait_for_events")
     .addConditionalEdges("wait_for_events", waitRouter)
@@ -1657,6 +1749,7 @@ export function createDefaultDeps({ cwd, checkpointer, threadId }) {
   };
   return {
     uuid: () => crypto.randomUUID(),
+    readParentUsage: (agent) => readParentUsage(agent),
     now: () => new Date().toISOString(),
     triageBudget: () => checkpointer?.triageBudget(runId) ?? null,
     assistedApproval: async (model) => Boolean(await loadAssistedApproval(cwd, model)),
@@ -1671,7 +1764,7 @@ export function createDefaultDeps({ cwd, checkpointer, threadId }) {
     },
     runTriage: (input, triage) => runner().run(input, triage),
     refreshTriageRoutes: (state) => refreshWorkerRoutes({
-      cwd, ...parentPoolOptions(state.config),
+      cwd, ...parentPoolOptions(state),
       unavailableAgents: state.unavailableAgents,
       unavailableModels: state.unavailableModels,
     }),
@@ -1679,7 +1772,7 @@ export function createDefaultDeps({ cwd, checkpointer, threadId }) {
       graphql: repositoryIssueGraphql,
     }),
     verifyTriageRoute: (route, state) => verifyWorkerRoute(route, {
-      cwd, ...parentPoolOptions(state.config),
+      cwd, ...parentPoolOptions(state),
       unavailableAgents: state.unavailableAgents,
       unavailableModels: state.unavailableModels,
     }),
@@ -1783,6 +1876,7 @@ export function parseGraphCliArgs(argv) {
     ["--capabilities-file", "capabilitiesFile"],
     ["--parent-agent", "parentAgent"],
     ["--parent-model", "parentModel"],
+    ["--parent-worker-mode", "parentWorkerMode"],
     ["--assignments-json", "assignmentsJson"],
     ["--resume-json", "resumeJson"],
     ["--resume-file", "resumeFile"],
@@ -1809,7 +1903,7 @@ export function parseGraphCliArgs(argv) {
       continue;
     }
     if (flag === "--parent-as-worker") {
-      options.parentAsWorker = true;
+      options.parentAsWorker = "always";
       continue;
     }
     const key = valueFlags.get(flag);
@@ -1837,7 +1931,7 @@ export function parseGraphCliArgs(argv) {
   if (options.triage && !["off", "shadow", "assisted"].includes(options.triage))
     throw new Error("triage-invalid-mode");
   if (options.resumeJson && options.resumeFile) throw new Error("resume-source-conflict");
-  return options;
+  return resolveParentWorkerFlags(options);
 }
 
 async function buildStartInput(cli, repositoryRoot) {
@@ -1876,7 +1970,7 @@ async function buildStartInput(cli, repositoryRoot) {
       releasePolicy: merged.releasePolicy,
       unavailableAgents: merged.unavailableAgents ?? [],
       unavailableModels: merged.unavailableModels ?? [],
-      parent: { agent: cli.parentAgent, model: cli.parentModel, ...(merged.parentAsWorker === true ? { asWorker: true } : {}) },
+      parent: { agent: cli.parentAgent, model: cli.parentModel, workerMode: merged.parentAsWorker },
       selectors: {
         issues: cli.issues,
         priority: cli.priority,

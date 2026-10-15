@@ -7,8 +7,12 @@ run:
   releasePolicy: pr-created
   unavailableModels: none
   unavailableAgents: none
-  # Set true to let the calling Parent agent also receive worker routes (default false).
-  parentAsWorker: false
+  # Whether the calling Parent agent also receives worker routes:
+  #   auto   - only while its 5-hour usage window has >= 50% left (default)
+  #   always - always (legacy `true`)
+  #   never  - never
+  # Legacy `false` (the old default) is read as auto; write `never` to opt out.
+  parentAsWorker: auto
   # Opt-in only: assisted also requires a local measured-evaluation approval record.
   triage:
     mode: off
