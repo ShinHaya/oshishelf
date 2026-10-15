@@ -31,6 +31,8 @@ async function createIDToken() {
   console.log("Creating IDToken for AI test service account...");
   try {
     // For IAP, we need an IDToken, not access token. Use gcloud to create it.
+    // The audience should be the IAP OAuth client ID, but we use the app origin as a fallback.
+    // If this fails with audience-related errors, check the IAP OAuth consent screen configuration.
     const { stdout: idtoken } = await execFileAsync("gcloud", [
       "auth", "application-default", "print-identity-token",
       `--impersonate-service-account=${AI_TEST_SA_EMAIL}`,
