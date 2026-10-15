@@ -1,9 +1,10 @@
 mock_provider "google" {}
 mock_provider "google-beta" {}
 variables {
-  project_id = "oshishelf-stg-fictional"
-  app_origin = "https://fictional.run.app"
-  image      = "asia-northeast1-docker.pkg.dev/oshishelf-stg-fictional/staging/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  iap_oauth_client_id = ""
+  project_id          = "oshishelf-stg-fictional"
+  app_origin          = "https://fictional.run.app"
+  image               = "asia-northeast1-docker.pkg.dev/oshishelf-stg-fictional/staging/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 }
 run "reject_production_project" {
   command = plan

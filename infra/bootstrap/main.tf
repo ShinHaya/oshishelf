@@ -65,7 +65,7 @@ resource "google_service_account" "deploy" {
   depends_on   = [google_project_service.api]
 }
 resource "google_project_iam_member" "terraform" {
-  for_each = toset(["roles/run.admin", "roles/iam.serviceAccountAdmin", "roles/resourcemanager.projectIamAdmin", "roles/artifactregistry.admin", "roles/datastore.owner", "roles/firebase.admin", "roles/firebaserules.admin", "roles/identityplatform.admin", "roles/storage.admin", "roles/iap.admin", "roles/serviceusage.serviceUsageConsumer"])
+  for_each = toset(["roles/run.admin", "roles/iam.serviceAccountAdmin", "roles/resourcemanager.projectIamAdmin", "roles/artifactregistry.admin", "roles/datastore.owner", "roles/firebase.admin", "roles/firebaserules.admin", "roles/identityplatform.admin", "roles/storage.admin", "roles/iap.admin", "roles/iap.settingsAdmin", "roles/serviceusage.serviceUsageConsumer"])
   project  = google_project.staging.project_id
   role     = each.value
   member   = "serviceAccount:${google_service_account.terraform.email}"

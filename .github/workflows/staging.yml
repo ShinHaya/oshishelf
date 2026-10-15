@@ -58,4 +58,6 @@ jobs:
           workload_identity_provider: ${{ vars.STAGING_WIF_PROVIDER }}
           service_account: ${{ vars.STAGING_TERRAFORM_ACCOUNT }}
       - run: terraform -chdir=infra/staging plan -input=false -lock-timeout=5m -out=/tmp/staging.tfplan
+        env:
+          TF_VAR_iap_oauth_client_secret: ${{ secrets.STAGING_IAP_OAUTH_CLIENT_SECRET }}
       - run: terraform -chdir=infra/staging apply -input=false /tmp/staging.tfplan

@@ -116,13 +116,52 @@ gcloud builds submit --project="$PROJECT_ID" --region=asia-northeast1 \
 ```
 
 初回のCloud RunはIAPを有効にしたまま作成する。
-組織なし環境のOAuthクライアントはAPIで初期作成できない場合があるため、[Cloud Run IAPの公式手順](https://docs.cloud.google.com/run/docs/securing/identity-aware-proxy-cloud-run)に従って新規プロジェクトのConsoleで初期設定する。
+組織なし環境ではGoogle認証用OAuthクライアントを初回作成する必要がある。
+作成後のIAPへの適用は、以下の手順でTerraformに管理させる。
 一時的な`allUsers`付与やIAP無効化で回避しない。
 
 通常のplan/applyで作成後、`uri`出力を`app_origin`に入れて再applyする。
 Firebaseの承認済みドメインも同時に更新される。
 必要に応じてFirebase ConsoleでGoogleログインを有効にし、サポートメールとOAuth設定を行う。
 メール認証はTerraformで有効にする。
+
+## OAuth初回作成とTerraformでの適用
+
+IAPにOAuthクライアントを適用する設定は`infra/staging/iap-oauth.tf`の`google_iap_settings.oauth`で管理する。
+ただしGoogleアカウント用OAuthクライアント自体の初回作成はConsoleに残る。
+[Google公式の移行案内](https://docs.cloud.google.com/iap/docs/deprecations/migrate-oauth-client)では、IAP OAuth Admin APIは2026年3月19日に終了しており、IaCでは事前作成したクライアントを使用するよう求めている。
+`google_iap_brand`と`google_iap_client`がプロバイダーに残っていても、この終了済みAPIを呼び出すため採用しない。
+`google_iam_oauth_client`はWorkforce Identity Federation用であり、今回のGoogleアカウント認証には代用しない。
+
+初回だけ[Google Auth Platform](https://console.cloud.google.com/auth/overview?project=oshishelf-stg-20261015)で同意画面（アプリ名`OshiShelf staging`、対象External、運営者の連絡先）とWebアプリケーション用OAuthクライアントを作成する。
+[公式手順](https://docs.cloud.google.com/iap/docs/custom-oauth-configuration)に従い、作成後に次の承認済みリダイレクトURIを設定する。
+
+```text
+https://iap.googleapis.com/v1/oauth/clientIds/CLIENT_ID:handleRedirect
+```
+
+IAP画面でのクライアント適用操作は行わず、以下の変更をPRでレビューしてからTerraformで適用する。
+
+1. 公開情報であるクライアントIDを、`infra/staging/iap-oauth.tf`の`iap_oauth_client_id`のdefaultに設定してコミットする。これにより、クライアントの切り替えもGitの変更履歴に残る。
+2. シークレットはGitHub Environment `staging`のSecret `STAGING_IAP_OAUTH_CLIENT_SECRET`に保存する。ローカルapplyでは同じ値を`TF_VAR_iap_oauth_client_secret`で渡す。チャット、コミット、tfvars、コマンド履歴へ実値を貼らない。
+3. bootstrapをplan/applyし、Terraform主体へ`roles/iap.settingsAdmin`を付与する。
+4. 通常構成のplanで新規ステージングのIAP設定だけが対象であることを確認し、applyする。以後はクライアントの適用と変更をTerraform経由で行う。
+5. 両形式のURLで許可主体のアクセス成功と、未許可主体の拒否を確認する。OAuth同意画面のExternal設定はIAMでの公開許可を追加しない。
+
+初回のクライアント作成も、作成日時、対象プロジェクト、公開クライアントID、リダイレクトURIをPRへ記録する。
+シークレットは記録しない。
+初回作成以外の構成変更はTerraformとGitで追跡し、Google側が提供していない作成APIを非公式なConsole内部APIで代替しない。
+
+クライアントIDとシークレットは両方が必要であり、片方だけの入力はplanで拒否する。
+初期構築中の両方未設定時はOAuth設定を作成しないため、現在の502を解消したとは扱わない。
+管理開始後に入力が消えても、`prevent_destroy`と`deletion_policy = PREVENT`で設定の削除を拒否する。
+IAPへの適用先は新規ステージングのプロジェクト単位とし、全URLに同じ設定を継承させる。
+
+プロバイダー7.46.1の実スキーマでは属性名は`client_id`と`client_secret`である。
+Googleの説明ページのTerraform例にある`oauth_client_id`等をそのまま転記せず、インストール済みスキーマとvalidateで確認している。
+プロバイダーの仕様上、シークレットはsensitive指定でもTerraform stateと保存planに含まれる。
+非公開GCS stateの権限を運営者とTerraform主体に限定し、ローカルplanは600、CIのplanは一時ファイルとして扱い、成果物として公開しない。
+Actionsではシークレットをplanステップのみに渡し、イメージビルドの環境へ渡さない。
 
 ## Actionsと権限の境界
 
@@ -255,6 +294,8 @@ stateと運用必須データも90日の計測TTLから除外する。
 
 運営者が対象IDを確認してからActionsを停止し、OIDCを無効化する。
 必要な運用記録を退避し、計測とプロンプトのオブジェクトを明示的に削除してから、Firestoreの削除保護とTerraformのPREVENTを解除する別変更をレビューする。
+OAuth設定を管理している場合は、その`prevent_destroy`と`deletion_policy`も片付け用の別変更で解除する。
+Googleアカウント用OAuthクライアント自体の削除はConsoleで行い、公開IDと実施日時だけを記録する。
 アプリ基盤をdestroy後、stateを安全に保管し、最後にbootstrapのプロジェクト削除保護を解除して削除する。
 stateバケットはforce destroyを無効にしてあり、通常のdestroyで履歴を消さない。
 既存本番にはこの手順を適用しない。
