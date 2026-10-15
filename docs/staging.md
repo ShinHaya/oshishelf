@@ -256,7 +256,9 @@ stateバケットはforce destroyを無効にしてあり、通常のdestroyで�
 別プロジェクトの利用や既存プロジェクトの課金解除は行っていない。
 
 ログ調査用に新規プロジェクトのLogging APIを有効化した。
-ただし監査ログ読み取りは`Permission denied for all log views`で失敗しており、ログの内容は未確認である。
+最初のログ読み取りは`Permission denied for all log views`で失敗した。
+その後、実プロジェクトのIAMで運営者にOwnerが付与されていることを確認し、エラーログの再取得は成功したが該当件数は0件だった。
+ログに記録がないことを課金紐付け成功の証拠にはしていない。
 診断SAはbootstrap停止のため未作成であり、この初回診断は運営者の認証で行った。
 
 失敗後のTerraform stateでは作成済みプロジェクトがtaintedになっていた。
