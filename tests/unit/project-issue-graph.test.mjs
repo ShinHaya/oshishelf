@@ -1262,7 +1262,7 @@ test("the parent runtime receives worker dispatches only when parent.asWorker op
 });
 
 test("parseGraphCliArgs validates thread id and resume sources", () => {
-  assert.equal(parseGraphCliArgs(["--thread-id", "t", "--parent-as-worker"]).parentAsWorker, true);
+  assert.equal(parseGraphCliArgs(["--thread-id", "t", "--parent-as-worker"]).parentAsWorker, "always");
   assert.throws(() => parseGraphCliArgs([]), /thread-id-required/);
   assert.throws(
     () => parseGraphCliArgs(["--thread-id", "t", "--resume-json", "{}", "--resume-file", "x"]),

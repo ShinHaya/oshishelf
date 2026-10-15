@@ -21,8 +21,8 @@ from an unambiguous `priority:P0..P3` label; open Issues are runnable, closed
 Issues are completed. Size is not fetched or written; triage may recommend it.
 
 1. Discover verified worker runtimes per [provider-routing.md](references/provider-routing.md).
-   Exclude every model of the parent runtime (unless the run opts the parent in with
-   `--parent-as-worker` / `run.parentAsWorker: true`) and apply unavailable route labels.
+   Include the parent runtime's worker records only per its worker mode (below) and apply
+   unavailable route labels.
 2. Use `node scripts/project-issue-orchestrator.mjs --issues <numbers> --dry-run
    --max-parallel <count> --release-policy merged --parent-agent <agent>
    --parent-model <model>`. It fetches only Issue metadata, labels and native
@@ -78,17 +78,34 @@ strengths and the user's run-scoped hints. Rules:
   relabel a canonical identifier as a different model.
 - A reviewer proposal equal to that Issue's implementer route is rejected while another route
   exists; independent review means a different runtime.
-- By default the Parent agent runtime is not a worker route. This exclusion is by `agent`, not by
-  model: a different model or selector from the same agent is still excluded. Opt the parent in
-  with `--parent-as-worker` (both orchestrator CLIs) or YAML `run.parentAsWorker: true`;
-  its verified `role: worker` records then join `workerRoutes`, while run-scoped
-  unavailable lists and the different-runtime reviewer rule still apply.
+- The Parent agent runtime joins `workerRoutes` according to its worker mode, set with
+  `--parent-worker-mode auto|always|never` (both orchestrator CLIs) or YAML
+  `run.parentAsWorker`. CLI beats YAML; the default is `auto`.
+  - `auto`: the parent joins only while its own **5-hour** usage window has **50% or more**
+    left, read at run time from the runtime's machine-readable interface (Codex: App Server
+    `account/rateLimits/read`, the window whose `windowDurationMins` is 300). Unknown usage —
+    unsupported runtime (currently every runtime except Codex), fetch failure, timeout, no
+    300-minute window, an invalid value, or a server-side block — keeps the parent out; the run
+    continues on the other verified routes.
+  - `always`: always joins (`--parent-as-worker` and legacy YAML `true`).
+  - `never`: never joins. Legacy YAML `false`, the old default, is read as `auto`; write `never`
+    to opt out permanently. `--parent-as-worker` together with a different
+    `--parent-worker-mode` fails as `parent-worker-mode-conflict`.
+
+  Inclusion and exclusion are by `agent`, not by model. Run-scoped unavailable lists, exact
+  model verification, and the different-runtime reviewer rule still apply. The StateGraph
+  re-reads usage before every new assignment and handoff; a worker already running on the
+  parent route is never stopped because usage dropped. Both CLIs report only
+  `{mode, eligible, reason, remainingPercent, windowDurationMins, fetchedAt}` (`parentWorker`
+  in classic output, `summary.routing.parentWorker` in the graph); the raw response, account,
+  plan, and credentials are never stored. Parent and worker share the same account quota, so
+  the check is a point-in-time admission, not a guarantee that 50% stays available.
 - Record the chosen route (agent + model labels only) in run state and in the dispatch message.
 - Exclusions are run-scoped: YAML `run.unavailableAgents` / `run.unavailableModels` and their
   `--unavailable-agent` / `--unavailable-model` CLI overrides affect only the current run, and
   availability is recomputed from fresh capability records on the next run.
-- Budget snapshots are not an input to initial assignment; session limits are handled reactively
-  at interruption time (below).
+- Apart from the parent's 5-hour check above, budget snapshots are not an input to initial
+  assignment; session limits are handled reactively at interruption time (below).
 
 ## Scheduling
 
