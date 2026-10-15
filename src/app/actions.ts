@@ -234,7 +234,7 @@ export async function createShelfCategoryAction(rawName: string): Promise<Action
   return attempt(async () => {
     const name = shelfCategoryName.parse(rawName);
     await addShelfCategory(uid, name);
-    revalidatePath("/shelf");
+    revalidatePath("/", "layout");
     return name;
   });
 }

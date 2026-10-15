@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
+import { ShelfFilters, useShelfFilters } from "./shelf-filters";
 import { useRouter } from "next/navigation";
-import { deleteItemsAction, fixItemTitleAction, publishDraftsAction, updateItemsVisibilityAction, updateItemVisibilityAction, assignShelfCategoryAction, createShelfCategoryAction, deleteShelfCategoryAction } from "@/app/actions";
+import { deleteItemsAction, fixItemTitleAction, publishDraftsAction, updateItemsVisibilityAction, updateItemVisibilityAction, assignShelfCategoryAction } from "@/app/actions";
 import { ItemCard } from "./item-card";
 import { ReviewEditor } from "./review";
 import { CATEGORY_LABELS, VISIBILITY_LABELS, type Item, type Visibility } from "@/lib/types";
@@ -33,17 +34,11 @@ export function ItemManager({ items, mode, canAdult, shelfCategories = [] }: { i
   );
 
   const categories = shelfCategories;
-  const [categoryFilter, setCategoryFilter] = useState("");
-  const [sort, setSort] = useState("recent");
-  const activeCategoryFilter = categories.includes(categoryFilter) ? categoryFilter : "";
+  const { filters, setFilters, shown: filtered } = useShelfFilters(items, true);
   const flaggedCount = items.filter(isFlagged).length;
   const unfetchedCount = items.filter(lacksProductInfo).length;
   const readyCount = items.filter(isReady).length;
-  const shown = useMemo(() => items.filter((i) =>
-    (filter === "all" || FILTERS[filter](i)) && (!activeCategoryFilter || i.shelfCategory === activeCategoryFilter)
-  ).sort((a, b) => sort === "category"
-    ? (a.shelfCategory || CATEGORY_LABELS[a.category]).localeCompare(b.shelfCategory || CATEGORY_LABELS[b.category], "ja")
-    : 0), [items, filter, activeCategoryFilter, sort]);
+  const shown = filtered.filter((i) => filter === "all" || FILTERS[filter](i));
 
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -98,29 +93,12 @@ export function ItemManager({ items, mode, canAdult, shelfCategories = [] }: { i
     if (mode === "published") start(async () => void (await updateItemVisibilityAction(id, v)));
   };
 
-  if (items.length === 0) return <p className="card p-8 text-center text-sm text-ink-2">{mode === "draft" ? "確認待ちの下書きはありません。" : "棚はまだ空です。"}</p>;
+  if (items.length === 0 && mode === "draft") return <p className="card p-8 text-center text-sm text-ink-2">確認待ちの下書きはありません。</p>;
 
   return (
     <div className="space-y-3">
-      {mode === "published" && <ShelfCategoryManager categories={categories} items={items} onMessage={setMessage} />}
-      {mode === "published" && categories.length > 0 && (
-        <label className="flex items-center gap-2 text-sm">
-          カテゴリーで絞り込み
-          <select className="input !w-auto" value={activeCategoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-            <option value="">すべて</option>
-            {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </label>
-      )}
-      {mode === "published" && (
-        <label className="flex items-center gap-2 text-sm">
-          並べ替え
-          <select className="input !w-auto" value={sort} onChange={(e) => setSort(e.target.value)}>
-            <option value="recent">公開が新しい順</option>
-            <option value="category">カテゴリー名順</option>
-          </select>
-        </label>
-      )}
+      {mode === "published" && <ShelfFilters items={items} ownShelf filters={filters} onChange={setFilters} />}
+      {shown.length === 0 && <p className="text-sm text-ink-2">条件に合う作品はありません。</p>}
       <div className="card sticky top-16 z-10 flex flex-wrap items-center gap-2 p-3">
         <label className="flex items-center gap-1.5 text-sm">
           <input type="checkbox" checked={selected.size === shown.length && shown.length > 0} onChange={(e) => setSelected(new Set(e.target.checked ? shown.map((i) => i.id) : []))} />
@@ -259,60 +237,5 @@ function TitleFixForm({ itemId }: { itemId: string }) {
       </button>
       {error && <p className="w-full text-xs text-danger">{error}</p>}
     </form>
-  );
-}
-
-/** The one place where shelf categories are created and deleted; items are assigned from the selection bar. */
-function ShelfCategoryManager({ categories, items, onMessage }: { categories: string[]; items: Item[]; onMessage: (m: string) => void }) {
-  const router = useRouter();
-  const [name, setName] = useState("");
-  const [pending, start] = useTransition();
-  const create = () =>
-    start(async () => {
-      const r = await createShelfCategoryAction(name);
-      onMessage(r.ok ? `カテゴリー「${r.data}」を作成しました。作品を選んで追加できます` : r.error);
-      if (!r.ok) return;
-      setName("");
-      router.refresh();
-    });
-  const remove = (c: string) => {
-    if (!confirm(`カテゴリー「${c}」を削除します。作品は棚に残り、このカテゴリーから外れます。よろしいですか？`)) return;
-    start(async () => {
-      const r = await deleteShelfCategoryAction(c);
-      onMessage(r.ok ? `カテゴリー「${c}」を削除しました` : r.error);
-      router.refresh();
-    });
-  };
-  return (
-    <section className="card space-y-2 p-3">
-      <h2 className="text-sm font-bold">独自カテゴリー</h2>
-      {categories.length > 0 ? (
-        <ul className="flex flex-wrap gap-1.5">
-          {categories.map((c) => (
-            <li key={c} className="chip flex items-center gap-1">
-              {c} <span className="text-ink-2">{items.filter((i) => i.shelfCategory === c).length}</span>
-              <button type="button" className="ml-0.5 text-ink-2 hover:text-danger" disabled={pending} onClick={() => remove(c)} aria-label={`カテゴリー「${c}」を削除`}>
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-xs text-ink-2">カテゴリーを作成すると、チェックを入れた作品をまとめて追加できます。</p>
-      )}
-      <form
-        className="flex flex-wrap items-center gap-1.5"
-        onSubmit={(e) => {
-          e.preventDefault();
-          create();
-        }}
-      >
-        <input className="input !w-auto min-w-0 flex-1 !py-1 text-xs" value={name} onChange={(e) => setName(e.target.value)}
-          maxLength={40} placeholder="例：お気に入り・積読" aria-label="新しいカテゴリー名" disabled={pending} />
-        <button type="submit" className="btn-ghost !px-3 !py-1 !text-xs" disabled={pending || !name.trim()}>
-          {pending ? "作成中…" : "作成"}
-        </button>
-      </form>
-    </section>
   );
 }
