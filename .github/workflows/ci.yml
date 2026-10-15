@@ -1,6 +1,11 @@
 name: CI
 
 on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: false
   pull_request:
   push:
     branches: [main]
@@ -18,8 +23,15 @@ jobs:
     timeout-minutes: 15
     env:
       NEXT_TELEMETRY_DISABLED: "1"
+      GOOGLE_CLOUD_PROJECT: fictional-ci-project
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: fictional-ci-project
+      NEXT_PUBLIC_FIREBASE_API_KEY: fictional-ci-key
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: fictional-ci-project.firebaseapp.com
+      NEXT_PUBLIC_FIREBASE_APP_ID: fictional-ci-app
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -28,3 +40,35 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm build
+
+  terraform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.5
+      - run: terraform fmt -check -recursive infra
+      - run: terraform -chdir=infra/bootstrap init -backend=false -input=false
+      - run: terraform -chdir=infra/bootstrap validate
+      - run: terraform -chdir=infra/bootstrap test
+      - run: terraform -chdir=infra/staging init -backend=false -input=false
+      - run: terraform -chdir=infra/staging validate
+      - run: terraform -chdir=infra/staging test
+
+  github-environment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.5
+      - run: terraform -chdir=infra/github init -backend=false -input=false
+      - run: terraform -chdir=infra/github validate
+      - run: terraform -chdir=infra/github test

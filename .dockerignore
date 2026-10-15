@@ -6,3 +6,7 @@ node_modules
 scripts
 *.md
 !README.md
+
+# Ephemeral GitHub OIDC credentials
+gha-creds-*.json
+infra

@@ -1,0 +1,6 @@
+project_id = "oshishelf-stg-REPLACE"
+region     = "asia-northeast1"
+app_origin = "https://REPLACE.run.app"
+image      = "asia-northeast1-docker.pkg.dev/oshishelf-stg-REPLACE/staging/app@sha256:REPLACE"
+# Commit the public IAP client ID as the default in iap-oauth.tf after bootstrap.
+# Supply only the secret through TF_VAR_iap_oauth_client_secret; never put it here.
