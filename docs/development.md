@@ -77,7 +77,8 @@ MVPの現状では、エミュレーターによるアプリ全体の起動は�
 複数の場合は行を分けるか、`Closes #123, #124`と記載します。
 参照だけのIssueは`Related #123`とし、完了していないIssueにclosing keywordを使いません。
 [GitHub標準の自動クローズ](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue)は既定ブランチへのマージだけが対象です。
-審査期間中は既定ブランチ`main`を維持するため、`Close merged issues` Actionsが`develop`へのマージ後に明示的なclosing行を処理します。
+mainの凍結は2026年10月15日23:00（日本時間）から開始し、それまでは利用者の指示によりmainも更新できます。
+凍結後も既定ブランチ`main`を維持するため、`Close merged issues` Actionsが`develop`へのマージ後に明示的なclosing行を処理します。
 マージせず閉じたPR、他ブランチ宛てのPR、コードブロックやコメント中の例、別リポジトリのIssueは処理しません。
 Actionsが失敗した場合は実行ログと関連Issueの状態を確認し、原因を直して再実行します。
 
