@@ -128,3 +128,16 @@ export async function listRecentUsers(limit = 20): Promise<UserProfile[]> {
   const snap = await usersCol().orderBy("createdAt", "desc").limit(limit).get();
   return snap.docs.map((d) => toProfile(d.id, d.data()));
 }
+
+/** Private import history; older accounts derive it from saved items once, without exposing titles. */
+export async function getImportedShops(uid: string): Promise<string[]> {
+  const user = await usersCol().doc(uid).get();
+  if (user.get("importedShopsBackfilled")) return user.get("importedShops") ?? [];
+  const items = await db.collection("items").where("ownerUid", "==", uid).select("shop").get();
+  const shops = [...new Set<string>([...(user.get("importedShops") ?? []), ...items.docs.map((d) => d.get("shop"))])].filter(Boolean);
+  await usersCol().doc(uid).update({
+    importedShopsBackfilled: true,
+    ...(shops.length ? { importedShops: FieldValue.arrayUnion(...shops) } : {}),
+  });
+  return shops;
+}

@@ -118,7 +118,14 @@ export interface Wish {
   lastCheckedAt: number | null;
 }
 
+export interface ProductLink {
+  shop: string;
+  label: string;
+  url: string;
+}
+
 export interface Notification {
+  productLinks?: ProductLink[];
   id: string;
   kind: "price_drop" | "new_release" | "follow" | "agent";
   title: string;

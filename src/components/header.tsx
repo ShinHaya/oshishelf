@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { getViewer } from "@/lib/session";
-import { unreadCount } from "@/lib/data/social";
 import { Avatar } from "./avatar";
 import { LogoutButton } from "./logout-button";
 import { NavBottomBar, NavTabs } from "./nav-links";
@@ -8,7 +7,6 @@ import { NavBottomBar, NavTabs } from "./nav-links";
 export async function Header() {
   const viewer = await getViewer();
   const profile = viewer?.profile ?? null;
-  const unread = profile ? await unreadCount(profile.uid) : 0;
 
   return (
     <>
@@ -22,14 +20,6 @@ export async function Header() {
             <>
               <NavTabs handle={profile.handle} />
               <div className="ml-auto flex items-center gap-2">
-                <Link href="/notifications" className="relative rounded-full p-2 hover:bg-surface-2" aria-label="通知">
-                  <span aria-hidden>🔔</span>
-                  {unread > 0 && (
-                    <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] font-bold text-accent-ink">
-                      {unread > 9 ? "9+" : unread}
-                    </span>
-                  )}
-                </Link>
                 <Link href="/settings" aria-label="設定" title="設定">
                   <Avatar profile={profile} size={32} />
                 </Link>

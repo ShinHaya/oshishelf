@@ -2,14 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 const mocks = vi.hoisted(() => ({
   get: vi.fn(), update: vi.fn(), doc: vi.fn((id: string) => ({ id })),
-  getAll: vi.fn(), batchUpdate: vi.fn(), commit: vi.fn(), where: vi.fn(), queryGet: vi.fn(),
+  getAll: vi.fn(), batchSet: vi.fn(), batchUpdate: vi.fn(), commit: vi.fn(), where: vi.fn(), queryGet: vi.fn(),
 }));
 vi.mock("../firebase-admin", () => ({
   db: {
     collection: () => ({ doc: mocks.doc, where: mocks.where }),
     runTransaction: (fn: (tx: unknown) => Promise<void>) => fn({ get: mocks.get, update: mocks.update }),
     getAll: mocks.getAll,
-    batch: () => ({ update: mocks.batchUpdate, commit: mocks.commit }),
+    batch: () => ({ set: mocks.batchSet, update: mocks.batchUpdate, commit: mocks.commit }),
   },
 }));
 vi.mock("./reviews", () => ({ deleteReactionsForItems: vi.fn() }));
@@ -68,5 +68,15 @@ describe("product URLs at the storage boundary", () => {
     mocks.get.mockResolvedValue({ exists: true, get: () => "other-owner" });
     await expect(setItemProductInfo("fictional-owner", "fictional-item", { url: "https://shop.example/product", title: "架空", urlIsSearch: false, shop: "example", shopLabel: "Example", productKey: null })).rejects.toThrow("not found");
     expect(mocks.update).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("private imported shop history", () => {
+  it("records imported shops in the same batch as drafts", async () => {
+    await createDrafts("fictional-owner", [{ ...makeItem({ shop: "amazon", url: "https://www.amazon.co.jp/dp/B012345678" }), productKey: null }]);
+    expect(mocks.batchSet).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ ownerUid: "fictional-owner", status: "draft" }));
+    expect(mocks.batchUpdate).toHaveBeenCalledWith({ id: "fictional-owner" }, { importedShops: expect.anything() });
+    expect(mocks.commit).toHaveBeenCalledOnce();
   });
 });

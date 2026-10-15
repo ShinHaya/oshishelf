@@ -23,7 +23,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full flex flex-col font-sans">
         <Header />
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 pb-24 pt-4">{children}</main>
-        <footer className="border-t border-line px-4 py-6 pb-24 text-center text-xs text-ink-2 sm:pb-6">
+        <footer className="border-t border-line px-4 py-6 pb-24 text-center text-xs text-ink-2 xl:pb-6">
           <p className="mx-auto max-w-2xl">
             <span className="mr-1 rounded border border-line px-1 font-bold">PR</span>
             {AFFILIATE_DISCLOSURE}

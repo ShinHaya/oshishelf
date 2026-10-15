@@ -83,7 +83,9 @@ export async function createDrafts(ownerUid: string, items: NewItem[]): Promise<
       publishedAt: null,
     });
   }
-  if (ids.length) await batch.commit();
+  const shops = [...new Set(items.map((i) => i.shop))];
+  if (shops.length) batch.update(db.collection("users").doc(ownerUid), { importedShops: FieldValue.arrayUnion(...shops) });
+  if (ids.length || shops.length) await batch.commit();
   return ids;
 }
 

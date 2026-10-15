@@ -6,9 +6,9 @@ import { genai, MODEL } from "../gemini";
 import { db } from "../../firebase-admin";
 import { fetchProductMeta } from "../../product-meta";
 import { listNotifications, listVisibleWishes, notify, updateWish } from "../../data/social";
-import { getUser } from "../../data/users";
-import { shopSearchUrl } from "../../shops";
-import type { UserProfile } from "../../types";
+import { getImportedShops, getUser } from "../../data/users";
+import { findRecommendationProducts, recommendationShops } from "../../recommendation-products";
+import type { Category, ProductLink, UserProfile } from "../../types";
 import type { VisibleWish } from "../../access";
 
 /** R18 titles never reach the model (the owner's AI-use consent does not cover a watcher), only the shop. */
@@ -19,12 +19,13 @@ const MAX_PRICE_NOTIFICATIONS = 3;
 const MAX_RELEASE_NOTIFICATIONS = 2;
 const MAX_SEARCHES_PER_RUN = 2;
 
-/** Grounded Google Search for recent releases; returns plain titles (links are built as shop searches). */
-async function searchNewReleases(keyword: string) {
+/** Grounded Google Search for recent releases; returns titles for subsequent product-page verification. */
+async function searchNewReleases(keyword: string, shops: string[]) {
   const res = await genai.models.generateContent({
     model: MODEL,
     contents: `「${keyword}」に関連する、直近1か月以内に発売・発売決定した書籍・マンガ・ゲーム・映像作品を最大3件調べてください。
-各行に「タイトル | 発売日 | 一言説明」の形式で書き、該当がなければ「なし」とだけ書いてください。成人向け作品は除外してください。`,
+検索対象のショップは ${shops.join("、")} だけです。それ以外のショップ、FANZA、DLsiteは検索しないでください。
+各行に「タイトル | 発売日 | 一言説明 | 分類（book/comic/game/video/music/goods/other）」の形式で書き、該当がなければ「なし」とだけ書いてください。成人向け作品は除外してください。`,
     config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
   });
   const text = res.text ?? "";
@@ -33,7 +34,7 @@ async function searchNewReleases(keyword: string) {
     .map((l) => l.replace(/^[-*・\d.\s]+/, "").split("|").map((s) => s.trim()))
     .filter((p) => p.length >= 2 && p[0] && p[0] !== "なし")
     .slice(0, 3)
-    .map(([title, date, note]) => ({ title, date, note: note ?? "" }));
+    .map(([title, date, note, category]) => ({ title, date, note: note ?? "", category: (["book", "comic", "game", "video", "music", "goods"].includes(category) ? category : "other") as Category }));
   return { keyword, releases };
 }
 
@@ -45,13 +46,15 @@ interface PatrolStats {
   releaseSent: number;
 }
 
-function buildAgent(user: UserProfile, stats: PatrolStats) {
+function buildAgent(user: UserProfile, stats: PatrolStats, importedShops: string[]) {
   const { uid, tasteTags } = user;
   // Only wishes for items the user may still see: hidden or deleted items are never fetched or announced.
   // Resolved once per patrol; check_price keeps the cached entries' prices current.
   let cached: Promise<VisibleWish[]> | null = null;
   const wishes = () => (cached ??= listVisibleWishes(uid, user));
   let searches = 0;
+  const discoveredReleases = new Map<string, Category>();
+  const productSearches = new Map<string, Promise<ProductLink[]>>();
   // Price drops verified by code during this run. The model may only notify about these.
   const verifiedDrops = new Map<string, { previous: number; current: number }>();
   return new LlmAgent({
@@ -105,8 +108,12 @@ notify_user がエラーを返した通知は送られていない。
         parameters: z.object({ keyword: z.string() }),
         execute: async ({ keyword }) => {
           if (searches >= MAX_SEARCHES_PER_RUN) return { error: "今回の巡回の検索上限に達しました" };
+          const shops = recommendationShops(importedShops, "amazon", false);
+          if (!shops.length) return { error: "新作検索の対象ショップがありません" };
           searches++;
-          return searchNewReleases(keyword);
+          const result = await searchNewReleases(keyword, shops);
+          result.releases.forEach((release) => discoveredReleases.set(release.title, release.category));
+          return result;
         },
       }),
       new FunctionTool({
@@ -133,10 +140,19 @@ notify_user がエラーを返した通知は送られていない。
             if (!drop) return { error: "この商品の値下がりは check_price で確認されていません。通知できません" };
             body = `${body}（¥${drop.previous.toLocaleString()} → ¥${drop.current.toLocaleString()}）`;
           }
-          let url: string | null = null;
-          if (itemId) url = (await wishes()).find((w) => w.itemId === itemId)?.url ?? null;
-          else if (releaseTitle) url = shopSearchUrl(undefined, releaseTitle).url;
-          await notify(uid, { kind, title, body, url });
+          const wish = kind === "price_drop" ? (await wishes()).find((w) => w.itemId === itemId) : undefined;
+          if (kind === "new_release" && (!releaseTitle || !discoveredReleases.has(releaseTitle))) return { error: "検索で確認した新作タイトルを指定してください" };
+          const productTitle = wish?.title ?? releaseTitle!;
+          const shops = recommendationShops(importedShops, wish?.shop ?? "amazon", wish?.isAdult ?? false, wish?.category ?? discoveredReleases.get(releaseTitle!) ?? "other");
+          const key = `${wish?.isAdult ?? false}:${productTitle}`;
+          if (!productSearches.has(key)) {
+            if (productSearches.size >= 5) return { error: "今回の商品検索上限に達しました" };
+            productSearches.set(key, findRecommendationProducts(productTitle, shops, wish?.isAdult ?? false));
+          }
+          const productLinks = (await productSearches.get(key)!).filter((link) => link.shop !== wish?.shop);
+          if (wish) productLinks.unshift({ shop: wish.shop, label: wish.shopLabel, url: wish.url });
+          if (!productLinks.length) return { error: "利用済みショップで商品ページを確認できませんでした" };
+          await notify(uid, { kind, title, body, url: productLinks[0].url, productLinks });
           if (kind === "price_drop") stats.priceSent++;
           else stats.releaseSent++;
           return { ok: true };
@@ -153,7 +169,8 @@ export async function runWatcherFor(uid: string) {
   const started = Date.now();
   try {
     const stats: PatrolStats = { checked: 0, priceSent: 0, releaseSent: 0 };
-    const { text, steps } = await runAgent(buildAgent(user, stats), uid, "巡回を開始してください。");
+    const importedShops = await getImportedShops(uid);
+    const { text, steps } = await runAgent(buildAgent(user, stats, importedShops), uid, "巡回を開始してください。");
     // The summary shown to users comes from what the tools actually did, not from the model's claims.
     const summary = `ほしい物 ${stats.checked} 件の価格を確認し、値下がり ${stats.priceSent} 件・新作 ${stats.releaseSent} 件を通知しました。`;
     await db.collection("agentRuns").add({ agent: "watcher", uid, ok: true, summary, agentReply: text.slice(0, 500), stats, steps, startedAt: started, finishedAt: Date.now() });
