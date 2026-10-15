@@ -121,25 +121,29 @@ async function processWriteQueue() {
  */
 export function deleteTelemetryForUser(uid: string) {
   // Fire and forget - don't await
-  db.collection(TELEMETRY_COLLECTION)
-    .where("uid", "==", uid)
-    .select()
-    .get()
-    .then((snap) => {
-      const batch = db.batch();
+  (async () => {
+    try {
+      const snap = await db.collection(TELEMETRY_COLLECTION)
+        .where("uid", "==", uid)
+        .select()
+        .get();
+
+      let batch = db.batch();
       let count = 0;
-      snap.docs.forEach((doc) => {
+
+      for (const doc of snap.docs) {
         batch.delete(doc.ref);
         count++;
         if (count % 500 === 0) {
-          batch.commit().then(() => {
-            batch.delete(doc.ref); // Reset batch for next 500
-          });
+          await batch.commit();
+          batch = db.batch(); // Create new batch instance after commit
         }
-      });
-      if (count % 500 !== 0) batch.commit();
-    })
-    .catch(() => {});
+      }
+      if (count % 500 !== 0) await batch.commit();
+    } catch {
+      // Silently ignore errors
+    }
+  })();
 }
 
 /**
@@ -148,19 +152,19 @@ export function deleteTelemetryForUser(uid: string) {
  */
 export async function deleteExpiredTelemetry() {
   const cutoffTime = Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000;
-  const batch = db.batch();
+  let batch = db.batch();
   let deleted = 0;
   const snap = await db.collection(TELEMETRY_COLLECTION).where("finishedAt", "<", cutoffTime).select().get();
 
-  snap.docs.forEach((doc) => {
+  for (const doc of snap.docs) {
     batch.delete(doc.ref);
     deleted++;
     if (deleted % 500 === 0) {
-      batch.commit();
-      batch.delete(doc.ref); // Reset
+      await batch.commit();
+      batch = db.batch(); // Create new batch instance after commit
     }
-  });
-  if (deleted % 500 !== 0) batch.commit();
+  }
+  if (deleted % 500 !== 0) await batch.commit();
 
   return deleted;
 }

@@ -3,7 +3,7 @@ import { type TraceId, type AiFunction, type TelemetryRecord, recordTelemetry, c
 
 /**
  * Thread-local telemetry context for the current AI operation.
- * Uses a simple WeakMap-based approach since AsyncLocalStorage isn't available.
+ * Uses a simple global variable with restore/cleanup via returned function.
  */
 export interface TelemetryContext {
   traceId: TraceId;

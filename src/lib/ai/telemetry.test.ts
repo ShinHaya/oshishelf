@@ -304,6 +304,129 @@ describe("Telemetry", () => {
       // Should not throw (fire-and-forget, no promise)
       expect(() => deleteTelemetryForUser("nonexistent")).not.toThrow();
     });
+
+    it("deleteExpiredTelemetry should delete all expired records with batch splitting", async () => {
+      const { db } = await import("../firebase-admin");
+
+      // Create mock docs
+      const mockDocs = Array.from({ length: 650 }, (_, i) => ({
+        ref: { id: `doc-${i}` },
+      }));
+
+      // Mock the query to return 650 docs
+      vi.mocked(db.collection).mockReturnValue({
+        where: vi.fn(() => ({
+          select: vi.fn(() => ({
+            get: vi.fn().mockResolvedValue({
+              docs: mockDocs,
+            }),
+          })),
+        })),
+      } as unknown as ReturnType<typeof db.collection>);
+
+      // Track batch operations
+      type MockBatch = {
+        delete: ReturnType<typeof vi.fn>;
+        commit: ReturnType<typeof vi.fn>;
+        create: ReturnType<typeof vi.fn>;
+        set: ReturnType<typeof vi.fn>;
+        update: ReturnType<typeof vi.fn>;
+      };
+      const batches: MockBatch[] = [];
+      const batchMock = vi.fn(() => {
+        const batch = {
+          delete: vi.fn(),
+          commit: vi.fn().mockResolvedValue(undefined),
+          create: vi.fn(),
+          set: vi.fn(),
+          update: vi.fn(),
+        };
+        batches.push(batch);
+        return batch;
+      });
+      vi.mocked(db.batch).mockImplementation(batchMock as unknown as () => ReturnType<typeof db.batch>);
+
+      const deleted = await deleteExpiredTelemetry();
+
+      // Should return count of deleted records
+      expect(deleted).toBe(650);
+
+      // Should create 2 batches (first 500, then remaining 150)
+      expect(batches.length).toBe(2);
+
+      // First batch should have 500 deletes
+      expect(batches[0].delete).toHaveBeenCalledTimes(500);
+      expect(batches[0].commit).toHaveBeenCalled();
+
+      // Second batch should have 150 deletes
+      expect(batches[1].delete).toHaveBeenCalledTimes(150);
+      expect(batches[1].commit).toHaveBeenCalled();
+    });
+
+    it("deleteTelemetryForUser should delete user records with batch splitting", async () => {
+      // Wait a bit to allow async operation to complete
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const { db } = await import("../firebase-admin");
+
+      // Create mock docs
+      const mockDocs = Array.from({ length: 1050 }, (_, i) => ({
+        ref: { id: `user-doc-${i}` },
+      }));
+
+      // Mock the query to return 1050 docs
+      vi.mocked(db.collection).mockReturnValue({
+        where: vi.fn(() => ({
+          select: vi.fn(() => ({
+            get: vi.fn().mockResolvedValue({
+              docs: mockDocs,
+            }),
+          })),
+        })),
+      } as unknown as ReturnType<typeof db.collection>);
+
+      // Track batch operations
+      type MockBatch = {
+        delete: ReturnType<typeof vi.fn>;
+        commit: ReturnType<typeof vi.fn>;
+        create: ReturnType<typeof vi.fn>;
+        set: ReturnType<typeof vi.fn>;
+        update: ReturnType<typeof vi.fn>;
+      };
+      const batches: MockBatch[] = [];
+      const batchMock = vi.fn(() => {
+        const batch = {
+          delete: vi.fn(),
+          commit: vi.fn().mockResolvedValue(undefined),
+          create: vi.fn(),
+          set: vi.fn(),
+          update: vi.fn(),
+        };
+        batches.push(batch);
+        return batch;
+      });
+      vi.mocked(db.batch).mockImplementation(batchMock as unknown as () => ReturnType<typeof db.batch>);
+
+      deleteTelemetryForUser("test-user");
+
+      // Wait for async operation to complete
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Should create 3 batches (first 500, second 500, then remaining 50)
+      expect(batches.length).toBe(3);
+
+      // First batch should have 500 deletes
+      expect(batches[0].delete).toHaveBeenCalledTimes(500);
+      expect(batches[0].commit).toHaveBeenCalled();
+
+      // Second batch should have 500 deletes
+      expect(batches[1].delete).toHaveBeenCalledTimes(500);
+      expect(batches[1].commit).toHaveBeenCalled();
+
+      // Third batch should have 50 deletes
+      expect(batches[2].delete).toHaveBeenCalledTimes(50);
+      expect(batches[2].commit).toHaveBeenCalled();
+    });
   });
 
   describe("No double-counting with agentRuns", () => {
