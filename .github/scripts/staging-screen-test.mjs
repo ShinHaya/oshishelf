@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import { writeFileSync } from "fs";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const APP_ORIGIN = process.env.APP_ORIGIN;
 const PROJECT_ID = process.env.PROJECT_ID;
 const AI_TEST_SA_EMAIL = process.env.AI_TEST_SA_EMAIL;
 const TARGET_SHA = process.env.TARGET_SHA;
+const DEPLOYED_IMAGE = process.env.DEPLOYED_IMAGE;
+const BUILD_DIGEST = process.env.BUILD_DIGEST;
 const GITHUB_RUN_ID = process.env.GITHUB_RUN_ID;
 
 if (!APP_ORIGIN || !PROJECT_ID || !AI_TEST_SA_EMAIL || !TARGET_SHA) {
@@ -29,10 +31,11 @@ async function createIDToken() {
   console.log("Creating IDToken for AI test service account...");
   try {
     // For IAP, we need an IDToken, not access token. Use gcloud to create it.
-    const { stdout: idtoken } = await execAsync(
-      `gcloud auth application-default print-identity-token --impersonate-service-account=${AI_TEST_SA_EMAIL} --audiences=${APP_ORIGIN}`,
-      { timeout: 30000 }
-    );
+    const { stdout: idtoken } = await execFileAsync("gcloud", [
+      "auth", "application-default", "print-identity-token",
+      `--impersonate-service-account=${AI_TEST_SA_EMAIL}`,
+      `--audiences=${APP_ORIGIN}`,
+    ], { timeout: 30000 });
 
     return idtoken.trim();
   } catch (error) {
@@ -50,18 +53,28 @@ async function testPageLoad(idToken) {
       },
     });
 
-    const revisionHeader = response.headers.get("x-goog-cloud-run-revision");
     const testResult = {
       name: "Page load test",
       url: `${APP_ORIGIN}/`,
       status: response.status,
       ok: response.ok,
-      revision: revisionHeader || "unknown",
       timestamp: new Date().toISOString(),
     };
 
     testResults.tests.push(testResult);
-    testResults.cloudRunRevision = revisionHeader || "unknown";
+
+    // Verify deployed image matches build digest
+    if (DEPLOYED_IMAGE && BUILD_DIGEST) {
+      const imageMatch = DEPLOYED_IMAGE === BUILD_DIGEST;
+      testResults.imageVerification = {
+        deployed: DEPLOYED_IMAGE,
+        built: BUILD_DIGEST,
+        matches: imageMatch,
+      };
+      if (!imageMatch) {
+        console.warn(`⚠ Deployed image does not match built digest`);
+      }
+    }
 
     if (!response.ok) {
       console.error(`Page load failed with status ${response.status}`);
@@ -141,6 +154,12 @@ async function main() {
   console.log(`Target SHA: ${TARGET_SHA}`);
   console.log(`Project ID: ${PROJECT_ID}`);
   console.log(`App Origin: ${APP_ORIGIN}`);
+  if (DEPLOYED_IMAGE) {
+    console.log(`Deployed Image: ${DEPLOYED_IMAGE}`);
+  }
+  if (BUILD_DIGEST) {
+    console.log(`Build Digest: ${BUILD_DIGEST}`);
+  }
 
   try {
     const idToken = await createIDToken();

@@ -77,12 +77,19 @@ jobs:
           terraform -chdir=infra/staging output -json ai_test_account > /tmp/ai_test_account.json
           echo "APP_ORIGIN=$(jq -r '.' /tmp/uri.json)" >> "$GITHUB_ENV"
           echo "AI_TEST_SA=$(jq -r '.' /tmp/ai_test_account.json)" >> "$GITHUB_ENV"
+      - name: Capture Cloud Run deployment info
+        run: |
+          gcloud run services describe oshishelf-staging --region=asia-northeast1 --project="${TF_VAR_project_id}" --format=json > /tmp/cloud-run-service.json
+          DEPLOYED_IMAGE=$(jq -r '.spec.template.spec.containers[0].image' /tmp/cloud-run-service.json)
+          echo "DEPLOYED_IMAGE=${DEPLOYED_IMAGE}" >> "$GITHUB_ENV"
       - name: Screen validation test
         env:
           APP_ORIGIN: ${{ env.APP_ORIGIN }}
           PROJECT_ID: ${{ vars.STAGING_PROJECT_ID }}
           AI_TEST_SA_EMAIL: ${{ env.AI_TEST_SA }}
           TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          DEPLOYED_IMAGE: ${{ env.DEPLOYED_IMAGE }}
+          BUILD_DIGEST: ${{ env.TF_VAR_image }}
         run: node .github/scripts/staging-screen-test.mjs
       - name: Record test results
         if: always()
