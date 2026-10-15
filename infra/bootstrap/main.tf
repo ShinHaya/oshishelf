@@ -30,7 +30,7 @@ resource "google_project" "staging" {
   deletion_policy = "PREVENT"
 }
 locals {
-  apis = toset(["serviceusage.googleapis.com", "cloudresourcemanager.googleapis.com", "iam.googleapis.com", "iamcredentials.googleapis.com", "sts.googleapis.com", "storage.googleapis.com", "run.googleapis.com", "artifactregistry.googleapis.com", "firestore.googleapis.com", "firebase.googleapis.com", "identitytoolkit.googleapis.com", "aiplatform.googleapis.com", "iap.googleapis.com", "firebaserules.googleapis.com", "logging.googleapis.com", "cloudasset.googleapis.com"])
+  apis = toset(["serviceusage.googleapis.com", "cloudresourcemanager.googleapis.com", "iam.googleapis.com", "iamcredentials.googleapis.com", "sts.googleapis.com", "storage.googleapis.com", "run.googleapis.com", "artifactregistry.googleapis.com", "firestore.googleapis.com", "firebase.googleapis.com", "identitytoolkit.googleapis.com", "aiplatform.googleapis.com", "iap.googleapis.com", "firebaserules.googleapis.com", "logging.googleapis.com", "cloudasset.googleapis.com", "cloudbuild.googleapis.com"])
 }
 resource "google_project_service" "api" {
   for_each           = local.apis

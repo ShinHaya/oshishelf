@@ -59,6 +59,9 @@ bootstrapの実行権限自体は持たない。
 terraform -chdir=infra/staging init -backend-config="bucket=${PROJECT_ID}-tfstate" -backend-config="prefix=staging"
 ```
 
+TerraformのGoogleプロバイダーは`billing_project`と`user_project_override`でクォータ用プロジェクトもステージングへ固定する。
+ローカルADCでIdentity Toolkit APIを初期化する際にも、この指定が必要である。
+
 初回のみ循環を解くため、Cloud Run以外の基盤を先行作成する。
 `image`には形式を満たす仮のdigest、`app_origin`には暫定の`https://${PROJECT_ID}.firebaseapp.com`を入れる。
 次のtarget applyは初回専用であり、通常の更新では使わない。
@@ -98,6 +101,20 @@ terraform -chdir=infra/staging plan -out=staging.tfplan
 terraform -chdir=infra/staging apply staging.tfplan
 ```
 
+ローカルDockerが利用できない場合は、同じプロジェクトのCloud Buildを初回ビルドに利用できる。
+bootstrapでCloud Build APIを有効化し、初回target planに`google_storage_bucket_iam_member.build_source`、`google_project_iam_member.build_logs`、`google_artifact_registry_repository_iam_member.build`を追加する。
+`.gcloudignore`でローカル環境変数、認証ファイル、Terraform入力とstateをアップロードから除外する。
+専用の`staging-build`サービスアカウントはアプリやインフラを変更できない。
+ソース保存バケットは1日で削除対象になり、soft deleteと保持ロックを設定しない。
+
+```bash
+gcloud builds submit --project="$PROJECT_ID" --region=asia-northeast1 \
+  --service-account="projects/${PROJECT_ID}/serviceAccounts/staging-build@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --gcs-source-staging-dir="gs://${PROJECT_ID}-build-source/source" \
+  --config=infra/cloudbuild.yaml \
+  --substitutions="_REGION=asia-northeast1,_FIREBASE_API_KEY=${NEXT_PUBLIC_FIREBASE_API_KEY},_FIREBASE_AUTH_DOMAIN=${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN},_FIREBASE_APP_ID=${NEXT_PUBLIC_FIREBASE_APP_ID}" .
+```
+
 初回のCloud RunはIAPを有効にしたまま作成する。
 組織なし環境のOAuthクライアントはAPIで初期作成できない場合があるため、[Cloud Run IAPの公式手順](https://docs.cloud.google.com/run/docs/securing/identity-aware-proxy-cloud-run)に従って新規プロジェクトのConsoleで初期設定する。
 一時的な`allUsers`付与やIAP無効化で回避しない。
@@ -127,6 +144,7 @@ OIDCはリポジトリと所有者の数値ID、`develop`のrefとworkflowパス
 | staging-app | 同プロジェクトのFirestore、Firebase Auth、Vertex AI。計測バケットのオブジェクト操作、プロンプト読み取り |
 | staging-ai-test | IAPアクセスと、同ステージングのログ、リソース構成、Cloud Run、API状態の読み取り。Firestoreの作品データ、インフラ管理、デプロイ権限なし |
 | staging-deploy | 対象Artifact Registryへのイメージpushのみ |
+| staging-build | 初回Cloud Build用。ソースバケット読み取り、Artifact Registryへのpush、ビルドログ書き込み |
 | staging-terraform | 新規ステージング内のサービス構成とIAM管理。課金管理や既存本番の権限なし |
 
 TerraformはIAMの管理に必要な権限を持ち、自身の権限も変更できる強い主体である。
@@ -270,3 +288,45 @@ GCS backend用バケットは未作成のため、state移行はまだ行って�
 続行には[課金クォータの増枠申請](https://support.google.com/code/contact/billing_quota_increase)等によるCloud Billing側の制限解除が必要である。
 解除後は同じプロジェクトとstateで新しいplanを生成し、変更対象を確認してからapplyする。
 Cloud Run、Firebase、Firestore、各SA、バケット、OIDC、画面確認、Actions applyは未実施である。
+
+
+## 課金設定後の構築と検証記録
+
+2026年10月15日、利用者による課金設定後に`billingEnabled: true`を確認して構築を再開した。
+bootstrapと通常構成をapplyし、Cloud Run、Firebase Authentication、Firestoreと全インデックス、拒否ルール、各SA、バケット、GitHub OIDCを作成した。
+bootstrap stateもGCSの`bootstrap` prefixへ移行し、通常構成は`staging` prefixを使う。
+
+初回のAuthentication設定は、ADCのクォータ用プロジェクト未指定で403になった。
+APIのエラーと設定リソースの404を確認し、Googleの両プロバイダーに`billing_project`と`user_project_override`を指定して再applyしたところ成功した。
+既存本番の設定は変更していない。
+
+初回イメージは専用の`staging-build`を使ったCloud Buildで作成した。
+ビルドIDは`d3feeb86-cfb7-4b96-9d4f-c0c08fd391d2`で、Next.jsの本番ビルドとpushが成功した。
+アップロード対象154ファイルを確認し、ローカル環境設定、認証ファイル、Terraform入力とstateを含まないことを検査した。
+
+Cloud Runは`asia-northeast1`に配置し、実サービスの`Ready: True`と`iap-enabled: true`を確認した。
+canonical URLは`https://oshishelf-staging-y7cynxjxla-an.a.run.app`で、APP_ORIGINとFirebase承認済みドメインもこのURLに更新した。
+数値形式のURLは`https://oshishelf-staging-698676314360.asia-northeast1.run.app`である。
+
+GitHub Environment `staging`を作成し、運営者のrequired reviewerと`develop`限定のbranch policyを設定した。
+プロジェクトID、APP_ORIGIN、WIF provider、Terraform用とデプロイ用のSAをEnvironment varsに登録した。
+ワークフローはPRのdevelopへの反映後に実行できる構成であり、現在のPRを勝手にマージして検証してはいない。
+
+以下は実環境で確認済みである。
+
+- Firebaseメール認証が有効で、Authの設定リソースは新規プロジェクト番号を返す。
+- 新規プロジェクトのVertex AIへ架空の短いプロンプトを送り、応答を得た。ただし運営者認証によるAPI単体確認であり、アプリ経由のAI操作は未確認。
+- Firestoreの架空のドキュメントへの未認証アクセスは403（Missing or insufficient permissions）。
+- AI診断SAによるAPI一覧、Cloud Assetの実リソース一覧、Cloud Runの状態、Cloud Logging読み取りが成功。初回のトークン発行権限の伝播前には拒否されたが、伝播後に成功した。
+- Cloud RunのInvokerはIAPサービスエージェントのみ。IAPのアクセサーは運営者とAI診断SAのみで、公開主体の付与なし。
+- 計測バケットは東京リージョン、90日ライフサイクル、soft delete無効、public access prevention有効。
+
+IAPのOAuthクライアント初期設定はまだ完了していない。
+canonical URL、数値形式URLの匿名アクセスと、AI主体のIDトークンによるアクセスはいずれも502（Empty Google Account OAuth client ID(s)/secret(s).）で、アプリ本文は返らない。
+この状態を「許可主体のアクセス成功」や「未許可主体の403確認済み」とは扱わない。
+このセッションではブラウザ操作が利用できないため、運営者にCloud Consoleで初期設定を依頼した。
+初期設定後のIAPアクセス、Firebaseセッション、ログイン済み画面、アプリ経由のAI操作、Actions applyは未確認である。
+
+再planでは、APIが返す無効な電話認証設定による差分が出たため、電話認証OFFも明示した。
+最終的にbootstrapと通常構成の両方でplanが変更なしとなることを確認した。
+ローカルの`pnpm check`は300テストを含め成功し、Terraformのvalidateとmock test 3件も成功した。

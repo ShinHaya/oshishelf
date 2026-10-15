@@ -34,10 +34,14 @@ variable "app_origin" {
   description = "Cloud Run canonical HTTPS URI (available after initial creation)"
 }
 provider "google" {
-  project = var.project_id
+  project               = var.project_id
+  billing_project       = var.project_id
+  user_project_override = true
 }
 provider "google-beta" {
-  project = var.project_id
+  project               = var.project_id
+  billing_project       = var.project_id
+  user_project_override = true
 }
 data "google_project" "staging" { project_id = var.project_id }
 resource "google_service_account" "app" {
@@ -100,6 +104,10 @@ resource "google_identity_platform_config" "app" {
   authorized_domains = ["${var.project_id}.firebaseapp.com", trimsuffix(trimprefix(var.app_origin, "https://"), "/"), "localhost"]
   sign_in {
     allow_duplicate_emails = false
+    phone_number {
+      enabled            = false
+      test_phone_numbers = {}
+    }
     email {
       enabled           = true
       password_required = true

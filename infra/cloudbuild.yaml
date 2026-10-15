@@ -1,0 +1,23 @@
+# Initial staging build fallback; all Firebase values are public build settings.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg
+      - GOOGLE_CLOUD_PROJECT=$PROJECT_ID
+      - --build-arg
+      - NEXT_PUBLIC_FIREBASE_API_KEY=${_FIREBASE_API_KEY}
+      - --build-arg
+      - NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${_FIREBASE_AUTH_DOMAIN}
+      - --build-arg
+      - NEXT_PUBLIC_FIREBASE_PROJECT_ID=$PROJECT_ID
+      - --build-arg
+      - NEXT_PUBLIC_FIREBASE_APP_ID=${_FIREBASE_APP_ID}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/staging/app:$BUILD_ID
+      - .
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/staging/app:$BUILD_ID
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1200s
