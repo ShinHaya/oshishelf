@@ -3,7 +3,8 @@ import Link from "next/link";
 import { requireProfile } from "@/lib/session";
 import { listNotifications, markAllRead } from "@/lib/data/social";
 import { db } from "@/lib/firebase-admin";
-import { looksLikeProductUrl, isKnownShopUrl } from "@/lib/shops";
+import { looksLikeProductUrl } from "@/lib/shops";
+import { notificationProductLinks } from "@/lib/notification-links";
 import { WatcherButton } from "./watcher-button";
 
 export const metadata: Metadata = { title: "あなたへのおすすめ" };
@@ -47,7 +48,7 @@ export default async function NotificationsPage() {
               {!n.read && <span className="h-2 w-2 rounded-full bg-accent" aria-label="未読" />}
             </>
           );
-          const productLinks = n.productLinks ?? [];
+          const productLinks = notificationProductLinks(n);
           const url = n.kind === "new_release" && n.url && !looksLikeProductUrl(n.url) ? null : n.url;
           return (
             <li key={n.id}>
@@ -63,12 +64,15 @@ export default async function NotificationsPage() {
                 <div className="card flex items-start gap-3 p-3">{body}</div>
               )}
               {productLinks.length > 0 && (
-                <div className="flex flex-wrap gap-2 px-3 py-2">
-                  {productLinks.filter((link) => isKnownShopUrl(link.url) && looksLikeProductUrl(link.url)).map((link) => (
-                    <a key={link.shop} href={link.url} target="_blank" rel="noopener noreferrer sponsored" className="btn-ghost text-sm" aria-label={`${link.label}の商品ページを開く`}>
-                      <span aria-hidden>🛒</span> {link.label}
-                    </a>
-                  ))}
+                <div className="px-3 py-2">
+                  <p className="mb-1 text-xs text-ink-2">商品ページを開く（広告）</p>
+                  <div className="flex flex-wrap gap-2">
+                    {productLinks.map((link) => (
+                      <a key={link.shop} href={link.url} target="_blank" rel="noopener noreferrer sponsored" className="btn-ghost text-sm" aria-label={`${link.label}の商品ページを開く`}>
+                        <span aria-hidden>🛒</span> {link.label}
+                      </a>
+                    ))}
+                  </div>
                 </div>
               )}
             </li>

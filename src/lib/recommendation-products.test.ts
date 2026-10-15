@@ -49,3 +49,14 @@ it("searches the adult DLsite catalogue without sending the title to a model", a
   expect(await findRecommendationProducts("架空の作品", ["dlsite"], true)).toHaveLength(1);
   expect(safeFetchText).toHaveBeenCalledWith(expect.stringContaining("/maniax/fsr/"), { cookie: "adultchecked=1" });
 });
+
+it("returns a verified product link for each matching EC store", async () => {
+  vi.mocked(safeFetchText)
+    .mockResolvedValueOnce({ status: 200, url: "https://www.amazon.co.jp/s?k=fiction", text: '<a href="/dp/B012345678">product</a>' })
+    .mockResolvedValueOnce({ status: 200, url: "https://books.rakuten.co.jp/search?sitem=fiction", text: '<a href="/rb/123456/">product</a>' });
+  vi.mocked(fetchProductMeta).mockResolvedValue({ title: "架空の作品", price: null, imageUrl: null, description: null });
+  expect(await findRecommendationProducts("架空の作品", ["amazon", "rakuten"], false)).toEqual([
+    { shop: "amazon", label: "Amazon", url: "https://www.amazon.co.jp/dp/B012345678" },
+    { shop: "rakuten", label: "楽天", url: "https://books.rakuten.co.jp/rb/123456/" },
+  ]);
+});
