@@ -1,5 +1,5 @@
 import { lacksProductInfo } from "./shops";
-import { CATEGORY_LABELS, type Item, type UserProfile, type Wish } from "./types";
+import { CATEGORY_LABELS, type Category, type Item, type UserProfile, type Wish } from "./types";
 
 export interface ViewContext {
   viewerUid: string | null;
@@ -35,7 +35,7 @@ export function canWishItem(item: Item, ctx: ViewContext): boolean {
 }
 
 /** A wish refreshed from its live item. `isAdult` is the item's current flag and is not stored. */
-export type VisibleWish = Wish & { isAdult: boolean };
+export type VisibleWish = Wish & { isAdult: boolean; category?: Category };
 
 /**
  * Re-check saved wishes against the live items: a wish is shown (with the item's current title, link
@@ -75,6 +75,7 @@ export function resolveWishes(
       lastPrice: item.url === w.url ? w.lastPrice : null,
       watch: w.watch && !item.urlIsSearch,
       isAdult: item.isAdult,
+      category: item.category,
     });
   }
   return { visible, gone };

@@ -22,6 +22,7 @@ function items(handle: string | null): NavItem[] {
     ...PUBLIC_ITEMS,
     { href: "/import", label: "取り込む", icon: "＋" },
     { href: "/wishlist", label: "ほしい", icon: "♡" },
+    { href: "/notifications", label: "あなたへのおすすめ", icon: "✨" },
   ];
 }
 
@@ -33,7 +34,7 @@ function isActive(pathname: string, href: string) {
 export function NavTabs({ handle }: { handle: string | null }) {
   const pathname = usePathname();
   return (
-    <nav className="ml-4 hidden gap-1 sm:flex">
+    <nav className="ml-4 hidden gap-1 xl:flex">
       {items(handle).map((n) => {
         const active = isActive(pathname, n.href);
         return (
@@ -55,7 +56,7 @@ export function NavTabs({ handle }: { handle: string | null }) {
 export function NavBottomBar({ handle }: { handle: string | null }) {
   const pathname = usePathname();
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-20 flex border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] sm:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-20 flex border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] xl:hidden">
       {items(handle).map((n) => {
         const active = isActive(pathname, n.href);
         return (
@@ -63,7 +64,7 @@ export function NavBottomBar({ handle }: { handle: string | null }) {
             key={n.href}
             href={n.href}
             aria-current={active ? "page" : undefined}
-            className={`flex flex-1 flex-col items-center py-2 text-[11px] ${active ? "font-bold text-accent" : "text-ink-2"}`}
+            className={`flex min-w-0 flex-1 flex-col items-center px-1 py-2 text-center text-[11px] ${active ? "font-bold text-accent" : "text-ink-2"}`}
           >
             <span className="text-base" aria-hidden>
               {n.icon}

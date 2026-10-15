@@ -24,7 +24,7 @@ export function ShelfFilters({ items, ownShelf, filters, onChange }: { items: Sh
       </select>
     </label>
   );
-  return <div className="flex flex-wrap items-center gap-3">
+  return <div className="flex flex-col items-start gap-3">
     <div className="flex flex-wrap items-center gap-2">
       {select("category", "カテゴリーで絞り込み", categories)}
       {ownShelf && <Link href="/settings#shelf-categories" className="btn-ghost !text-xs">独自カテゴリー作成</Link>}

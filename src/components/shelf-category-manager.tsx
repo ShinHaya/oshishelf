@@ -28,8 +28,8 @@ export function ShelfCategoryManager({ categories, items }: { categories: string
     });
   };
   return (
-    <section id="shelf-categories" className="card space-y-2 p-3">
-      <h2 className="text-sm font-bold">独自カテゴリー</h2>
+    <section aria-labelledby="shelf-categories" className="card space-y-2 p-3">
+      <h2 id="shelf-categories" tabIndex={-1} className="scroll-mt-20 text-sm font-bold">独自カテゴリー</h2>
       {message && <p role="status" className="text-sm">{message}</p>}
       {categories.length > 0 ? (
         <ul className="flex flex-wrap gap-1.5">
