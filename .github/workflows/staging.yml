@@ -73,22 +73,17 @@ jobs:
       - run: terraform -chdir=infra/staging apply -input=false /tmp/staging.tfplan
       - name: Capture Terraform outputs
         run: |
-          terraform -chdir=infra/staging output -json app_origin > /tmp/app_origin.json
+          terraform -chdir=infra/staging output -json uri > /tmp/uri.json
           terraform -chdir=infra/staging output -json ai_test_account > /tmp/ai_test_account.json
-          echo "APP_ORIGIN=$(jq -r '.' /tmp/app_origin.json)" >> "$GITHUB_ENV"
+          echo "APP_ORIGIN=$(jq -r '.' /tmp/uri.json)" >> "$GITHUB_ENV"
           echo "AI_TEST_SA=$(jq -r '.' /tmp/ai_test_account.json)" >> "$GITHUB_ENV"
       - name: Screen validation test
         env:
-          TF_VAR_app_origin: ${{ env.APP_ORIGIN }}
-          TF_VAR_project_id: ${{ vars.STAGING_PROJECT_ID }}
+          APP_ORIGIN: ${{ env.APP_ORIGIN }}
+          PROJECT_ID: ${{ vars.STAGING_PROJECT_ID }}
           AI_TEST_SA_EMAIL: ${{ env.AI_TEST_SA }}
           TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          node .github/scripts/staging-screen-test.mjs 2>&1 | tee /tmp/screen-test-results.log || true
-          # Ensure the test results file exists
-          if [ ! -f /tmp/screen-test-results.json ]; then
-            echo '{"success": false, "error": "Test script did not produce results"}' > /tmp/screen-test-results.json
-          fi
+        run: node .github/scripts/staging-screen-test.mjs
       - name: Record test results
         if: always()
         run: |

@@ -2,11 +2,12 @@
 
 import { exec } from "child_process";
 import { promisify } from "util";
+import { writeFileSync } from "fs";
 
 const execAsync = promisify(exec);
 
-const APP_ORIGIN = process.env.TF_VAR_app_origin;
-const PROJECT_ID = process.env.TF_VAR_project_id;
+const APP_ORIGIN = process.env.APP_ORIGIN;
+const PROJECT_ID = process.env.PROJECT_ID;
 const AI_TEST_SA_EMAIL = process.env.AI_TEST_SA_EMAIL;
 const TARGET_SHA = process.env.TARGET_SHA;
 const GITHUB_RUN_ID = process.env.GITHUB_RUN_ID;
@@ -152,6 +153,9 @@ async function main() {
 
     testResults.success = allTestsPassed;
 
+    // Write results to file
+    writeFileSync("/tmp/screen-test-results.json", JSON.stringify(testResults, null, 2));
+
     // Output results in a structured format
     console.log("\n=== Test Results ===");
     console.log(JSON.stringify(testResults, null, 2));
@@ -166,6 +170,7 @@ async function main() {
     console.error("Fatal error during screen testing:", error);
     testResults.success = false;
     testResults.error = error.message;
+    writeFileSync("/tmp/screen-test-results.json", JSON.stringify(testResults, null, 2));
     console.log(JSON.stringify(testResults, null, 2));
     process.exit(1);
   }
