@@ -8,7 +8,7 @@ import { isFollowing, wishedIds } from "@/lib/data/social";
 import { myReactions } from "@/lib/data/reviews";
 import { adultAiAllowed, canSeeItemAdult, canSeeItem } from "@/lib/access";
 import { getCachedCompatibility } from "@/lib/ai/agents/matcher";
-import { CATEGORY_LABELS, type Item, type ReviewReaction } from "@/lib/types";
+import type { ReviewReaction } from "@/lib/types";
 import { Avatar } from "@/components/avatar";
 import { FollowButton } from "@/components/follow-button";
 import { ShelfBrowser } from "@/components/shelf-browser";
@@ -43,14 +43,6 @@ export default async function ProfilePage(props: PageProps<"/u/[handle]">) {
   const bio = owner.aiBio ? (owner.aiBio.adult && adultAiAllowed(owner, me) ? owner.aiBio.adult : owner.aiBio) : null;
 
   const reactions = me && !isMe ? await myReactions(me.uid, items.filter((i) => i.review?.text).map((i) => i.id)) : new Map<string, ReviewReaction>();
-
-  const groups = new Map<string, { label: string; items: Item[] }>();
-  for (const it of items) {
-    const key = it.shelfCategory ? `custom:${it.shelfCategory}` : `default:${it.category}`;
-    const group = groups.get(key) ?? { label: it.shelfCategory || CATEGORY_LABELS[it.category], items: [] };
-    group.items.push(it);
-    groups.set(key, group);
-  }
 
   return (
     <div className="space-y-6">
@@ -123,26 +115,12 @@ export default async function ProfilePage(props: PageProps<"/u/[handle]">) {
 
       <section className="space-y-6">
         {items.length === 0 && <p className="card p-8 text-center text-sm text-ink-2">公開されている作品はまだありません。</p>}
-        <ShelfBrowser groups={[...groups.entries()].map(([cat, { label, items: list }]) => ({
-          key: cat, label, count: list.length, content: (
-            <div key={cat}>
-              <h2 className="mb-2 font-display font-bold">
-                {label} <span className="text-sm font-normal text-ink-2">{list.length}</span>
-              </h2>
-              <div className="shelf-row grid grid-cols-2 gap-3 pb-4 sm:grid-cols-4 lg:grid-cols-5">
-                {list.map((item) => (
-                  <ItemCard
-                    key={item.id}
-                    item={item}
-                    wished={wished.has(item.id)}
-                    canWish={!!me && !isMe}
-                    reaction={reactions.get(item.id)}
-                    reactAs={isMe ? "owner" : me ? "viewer" : "guest"}
-                  />
-                ))}
-              </div>
-            </div>
-        )}))} />
+        <ShelfBrowser ownShelf={isMe} entries={items.map((item) => ({
+          item: { id: item.id, title: item.title, category: item.category, tags: item.tags, shop: item.shop,
+            shopLabel: item.shopLabel, publishedAt: item.publishedAt, shelfCategory: isMe ? item.shelfCategory : null },
+          content: <ItemCard item={item} wished={wished.has(item.id)} canWish={!!me && !isMe}
+            reaction={reactions.get(item.id)} reactAs={isMe ? "owner" : me ? "viewer" : "guest"} />,
+        }))} />
         {adultHidden > 0 && (
           <p className="text-center text-xs text-ink-2">
             成人向け作品 {adultHidden} 件は非表示です（18歳以上の方は設定で表示をONにできます）

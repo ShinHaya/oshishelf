@@ -17,7 +17,7 @@ export default async function ShelfPage() {
       <div className="flex items-end justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold">棚の編集</h1>
-          <p className="text-sm text-ink-2">独自カテゴリーの作成と振り分け、公開範囲の変更、作品の削除ができます。カテゴリー名は、作品を閲覧できる人の棚にも表示されます。</p>
+          <p className="text-sm text-ink-2">独自カテゴリーへの振り分け、公開範囲の変更、作品の削除ができます。独自カテゴリーは設定から作成できます。</p>
         </div>
         <Link href={`/u/${profile.handle}`} className="btn-ghost">
           棚を見る
