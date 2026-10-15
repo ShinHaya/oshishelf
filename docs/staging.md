@@ -243,3 +243,28 @@ stateバケットはforce destroyを無効にしてあり、通常のdestroyで�
 
 実環境のplan/apply、IAPのOAuth初期設定、画面確認はプロジェクト入力と初期権限の確定後に行う。
 ローカルのvalidateや単体テストだけで、受け入れ条件の実環境確認を完了としない。
+
+
+## 2026年10月15日の初回構築記録
+
+手元のgcloud認証とTerraformのADCが、いずれも指定運営者のメールアドレスであることを確認した。
+有効な既存課金アカウントを選択し、bootstrap planが新規ステージングへの作成37件のみで、既存本番の変更や削除を含まないことをJSONでも検査した。
+
+`oshishelf-stg-20261015`（プロジェクト番号`698676314360`）の作成は成功した。
+課金紐付けではCloud Billing APIが`400 failedPrecondition`と`QuotaFailure: Cloud billing quota exceeded`を返し、bootstrap applyは停止した。
+実リソースを直接確認し、プロジェクトは`ACTIVE`、`billingEnabled: false`、課金アカウント未紐付けであることを確認した。
+別プロジェクトの利用や既存プロジェクトの課金解除は行っていない。
+
+ログ調査用に新規プロジェクトのLogging APIを有効化した。
+ただし監査ログ読み取りは`Permission denied for all log views`で失敗しており、ログの内容は未確認である。
+診断SAはbootstrap停止のため未作成であり、この初回診断は運営者の認証で行った。
+
+失敗後のTerraform stateでは作成済みプロジェクトがtaintedになっていた。
+実在と状態を確認したうえで当該リソースのみuntaintし、再作成を避けた。
+再planでは当該プロジェクトは課金設定のupdateとなり、全体で削除がないことを確認した。
+stateとローカル入力はgitignore対象に保管し、stateとplanのパーミッションは600に設定した。
+GCS backend用バケットは未作成のため、state移行はまだ行っていない。
+
+続行には[課金クォータの増枠申請](https://support.google.com/code/contact/billing_quota_increase)等によるCloud Billing側の制限解除が必要である。
+解除後は同じプロジェクトとstateで新しいplanを生成し、変更対象を確認してからapplyする。
+Cloud Run、Firebase、Firestore、各SA、バケット、OIDC、画面確認、Actions applyは未実施である。
