@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { deleteItemsAction, fixItemTitleAction, publishDraftsAction, updateItemsVisibilityAction, updateItemVisibilityAction, assignShelfCategoryAction, createShelfCategoryAction, deleteShelfCategoryAction } from "@/app/actions";
+import { ItemCard } from "./item-card";
 import { ReviewEditor } from "./review";
 import { CATEGORY_LABELS, VISIBILITY_LABELS, type Item, type Visibility } from "@/lib/types";
 import { lacksProductInfo } from "@/lib/shops";
@@ -33,13 +34,16 @@ export function ItemManager({ items, mode, canAdult, shelfCategories = [] }: { i
 
   const categories = shelfCategories;
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [sort, setSort] = useState("recent");
   const activeCategoryFilter = categories.includes(categoryFilter) ? categoryFilter : "";
   const flaggedCount = items.filter(isFlagged).length;
   const unfetchedCount = items.filter(lacksProductInfo).length;
   const readyCount = items.filter(isReady).length;
   const shown = useMemo(() => items.filter((i) =>
     (filter === "all" || FILTERS[filter](i)) && (!activeCategoryFilter || i.shelfCategory === activeCategoryFilter)
-  ), [items, filter, activeCategoryFilter]);
+  ).sort((a, b) => sort === "category"
+    ? (a.shelfCategory || CATEGORY_LABELS[a.category]).localeCompare(b.shelfCategory || CATEGORY_LABELS[b.category], "ja")
+    : 0), [items, filter, activeCategoryFilter, sort]);
 
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -105,6 +109,15 @@ export function ItemManager({ items, mode, canAdult, shelfCategories = [] }: { i
           <select className="input !w-auto" value={activeCategoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
             <option value="">すべて</option>
             {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </label>
+      )}
+      {mode === "published" && (
+        <label className="flex items-center gap-2 text-sm">
+          並べ替え
+          <select className="input !w-auto" value={sort} onChange={(e) => setSort(e.target.value)}>
+            <option value="recent">公開が新しい順</option>
+            <option value="category">カテゴリー名順</option>
           </select>
         </label>
       )}
@@ -187,6 +200,14 @@ export function ItemManager({ items, mode, canAdult, shelfCategories = [] }: { i
               )}
               {lacksProductInfo(item) && <TitleFixForm itemId={item.id} />}
               {mode === "published" && <ReviewEditor itemId={item.id} review={item.review} />}
+              {mode === "published" && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-sm text-accent">作品のプレビュー</summary>
+                  <div className="mt-2 max-w-64">
+                    <ItemCard item={{ ...item, visibility: vis[item.id] }} hideAdult={!canAdult} reactAs="owner" />
+                  </div>
+                </details>
+              )}
             </div>
             <select
               className="input !w-auto self-start !py-1 text-xs"

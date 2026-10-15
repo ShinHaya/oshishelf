@@ -24,6 +24,11 @@ export function canSeeAdult(viewer: UserProfile | null): boolean {
   return !!viewer?.isAdult && !!viewer.showAdult;
 }
 
+/** Owners may preview their own adult items regardless of their display preference. */
+export function canSeeItemAdult(item: Item, viewerUid: string | null, viewerProfile: UserProfile | null): boolean {
+  return !item.isAdult || item.ownerUid === viewerUid || canSeeAdult(viewerProfile);
+}
+
 /** Whether a viewer may wish for / keep seeing an item: published, visible to them, and R18 only with their opt-in. */
 export function canWishItem(item: Item, ctx: ViewContext): boolean {
   return item.status === "published" && canSeeItem(item, ctx) && (!item.isAdult || item.ownerUid === ctx.viewerUid || canSeeAdult(ctx.viewerProfile));

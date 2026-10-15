@@ -6,11 +6,12 @@ import { getUserByHandle } from "@/lib/data/users";
 import { listShelf } from "@/lib/data/items";
 import { isFollowing, wishedIds } from "@/lib/data/social";
 import { myReactions } from "@/lib/data/reviews";
-import { adultAiAllowed, canSeeAdult, canSeeItem } from "@/lib/access";
+import { adultAiAllowed, canSeeItemAdult, canSeeItem } from "@/lib/access";
 import { getCachedCompatibility } from "@/lib/ai/agents/matcher";
 import { CATEGORY_LABELS, type Item, type ReviewReaction } from "@/lib/types";
 import { Avatar } from "@/components/avatar";
 import { FollowButton } from "@/components/follow-button";
+import { ShelfBrowser } from "@/components/shelf-browser";
 import { ItemCard } from "@/components/item-card";
 import { CompatPanel } from "./compat-panel";
 import { TwinChat } from "./twin-chat";
@@ -35,10 +36,8 @@ export default async function ProfilePage(props: PageProps<"/u/[handle]">) {
     me && !isMe ? getCachedCompatibility(me, owner) : Promise.resolve(null),
   ]);
   const visible = shelf.filter((i) => canSeeItem(i, { viewerUid: me?.uid ?? null, viewerProfile: me, following }));
-  // The viewer decides: R18 items show only for viewers who declared 18+ and turned display on.
-  const showAdult = canSeeAdult(me);
-  const adultHidden = visible.filter((i) => i.isAdult && !showAdult).length;
-  const items = visible.filter((i) => showAdult || !i.isAdult);
+  const items = visible.filter((i) => canSeeItemAdult(i, viewer?.uid ?? null, me));
+  const adultHidden = visible.length - items.length;
 
   // Bio A (reflects R18 genres) for viewers who opted in, while the owner allows it; otherwise bio B.
   const bio = owner.aiBio ? (owner.aiBio.adult && adultAiAllowed(owner, me) ? owner.aiBio.adult : owner.aiBio) : null;
@@ -124,25 +123,26 @@ export default async function ProfilePage(props: PageProps<"/u/[handle]">) {
 
       <section className="space-y-6">
         {items.length === 0 && <p className="card p-8 text-center text-sm text-ink-2">公開されている作品はまだありません。</p>}
-        {[...groups.entries()].map(([cat, { label, items: list }]) => (
-          <div key={cat}>
-            <h2 className="mb-2 font-display font-bold">
-              {label} <span className="text-sm font-normal text-ink-2">{list.length}</span>
-            </h2>
-            <div className="shelf-row grid grid-cols-2 gap-3 pb-4 sm:grid-cols-4 lg:grid-cols-5">
-              {list.map((item) => (
-                <ItemCard
-                  key={item.id}
-                  item={item}
-                  wished={wished.has(item.id)}
-                  canWish={!!me && !isMe}
-                  reaction={reactions.get(item.id)}
-                  reactAs={isMe ? "owner" : me ? "viewer" : "guest"}
-                />
-              ))}
+        <ShelfBrowser groups={[...groups.entries()].map(([cat, { label, items: list }]) => ({
+          key: cat, label, count: list.length, content: (
+            <div key={cat}>
+              <h2 className="mb-2 font-display font-bold">
+                {label} <span className="text-sm font-normal text-ink-2">{list.length}</span>
+              </h2>
+              <div className="shelf-row grid grid-cols-2 gap-3 pb-4 sm:grid-cols-4 lg:grid-cols-5">
+                {list.map((item) => (
+                  <ItemCard
+                    key={item.id}
+                    item={item}
+                    wished={wished.has(item.id)}
+                    canWish={!!me && !isMe}
+                    reaction={reactions.get(item.id)}
+                    reactAs={isMe ? "owner" : me ? "viewer" : "guest"}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+        )}))} />
         {adultHidden > 0 && (
           <p className="text-center text-xs text-ink-2">
             成人向け作品 {adultHidden} 件は非表示です（18歳以上の方は設定で表示をONにできます）
