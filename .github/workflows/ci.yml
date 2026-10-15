@@ -38,6 +38,7 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: node --test .github/scripts/*.test.mjs
       - run: pnpm check
       - run: pnpm build
 
