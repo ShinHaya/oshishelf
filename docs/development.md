@@ -13,6 +13,8 @@ pnpm build
 ```
 
 検査とビルドにはクラウドの認証情報は不要です。
+ただしFirebaseの公開設定と`GOOGLE_CLOUD_PROJECT`を同じ環境の値で設定します。
+CIでは架空の公開設定を使います。
 Next.jsの型は `pnpm typecheck` が `next typegen` で生成するため、初回に開発サーバーを起動する必要もありません。
 
 画面から認証、保存、AI生成を試す場合は、Firebase Authentication、Firestore、Vertex AIが利用できる開発用Google CloudプロジェクトとADCが必要です。
@@ -29,10 +31,12 @@ pnpm dev
 cronのOIDC設定とアフィリエイト設定は、その機能を確認するときだけ設定します。
 `.env.local`、サービスアカウント鍵、ADCの内容はコミットしません。
 
-現在のFirebase Web設定は `src/lib/firebase-client.ts` に固定されています。
-別の開発用プロジェクトを使う場合はWeb設定も同じプロジェクトに合わせ、Authenticationのログイン方式とlocalhostの承認済みドメインを確認してください。
-サーバーのプロジェクトIDだけ変更すると、認証先と保存先が一致しません。
+Firebase Web設定は`NEXT_PUBLIC_FIREBASE_*`の4変数で指定します。
+`GOOGLE_CLOUD_PROJECT`と同じプロジェクトの値を使い、Authenticationのログイン方式とlocalhostの承認済みドメインも確認してください。
+公開設定はビルド時にブラウザのコードへ埋め込まれるため、実行時の環境変数の変更だけでは切り替わりません。
+プロジェクトの不一致はビルド時とサーバー起動時に拒否します。
 Web設定は公開情報ですが、サービスアカウント鍵とは別物です。
+新規ステージングの構築とActionsの設定は[構築手順](staging.md)を参照してください。
 
 Firestoreのルールとインデックスは `scripts/setup-firestore.sh` を参照してください。
 このスクリプトと `scripts/seed.mts` はクラウドの状態を変更するため、対象プロジェクトと内容を確認してから実行します。

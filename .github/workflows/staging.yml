@@ -1,0 +1,61 @@
+name: Staging
+on:
+  workflow_dispatch:
+  pull_request_target:
+    branches: [develop]
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: staging
+  cancel-in-progress: false
+jobs:
+  deploy:
+    # Privileged workflow: only the operator's same-repository PRs may run.
+    if: github.ref == 'refs/heads/develop' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.id == 23278980))
+    environment: staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_VAR_project_id: ${{ vars.STAGING_PROJECT_ID }}
+      TF_VAR_region: asia-northeast1
+      TF_VAR_app_origin: ${{ vars.STAGING_APP_ORIGIN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.STAGING_WIF_PROVIDER }}
+          service_account: ${{ vars.STAGING_TERRAFORM_ACCOUNT }}
+      - run: terraform -chdir=infra/staging init -input=false -backend-config="bucket=${TF_VAR_project_id}-tfstate" -backend-config="prefix=staging"
+      - name: Read public Firebase build configuration
+        run: |
+          terraform -chdir=infra/staging output -json firebase_web_config > /tmp/firebase.json
+          jq -r '"NEXT_PUBLIC_FIREBASE_API_KEY=\(.api_key)\nNEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=\(.auth_domain)\nNEXT_PUBLIC_FIREBASE_PROJECT_ID=\(.project_id)\nNEXT_PUBLIC_FIREBASE_APP_ID=\(.app_id)"' /tmp/firebase.json >> "$GITHUB_ENV"
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.STAGING_WIF_PROVIDER }}
+          service_account: ${{ vars.STAGING_DEPLOY_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Build staging image
+        run: |
+          gcloud auth configure-docker "${TF_VAR_region}-docker.pkg.dev" --quiet
+          IMAGE="${TF_VAR_region}-docker.pkg.dev/${TF_VAR_project_id}/staging/app:${GITHUB_RUN_ID}"
+          docker build --build-arg GOOGLE_CLOUD_PROJECT="$TF_VAR_project_id" --build-arg NEXT_PUBLIC_FIREBASE_API_KEY --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID --build-arg NEXT_PUBLIC_FIREBASE_APP_ID -t "$IMAGE" .
+          docker push "$IMAGE"
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE")
+          echo "TF_VAR_image=$DIGEST" >> "$GITHUB_ENV"
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.STAGING_WIF_PROVIDER }}
+          service_account: ${{ vars.STAGING_TERRAFORM_ACCOUNT }}
+      - run: terraform -chdir=infra/staging plan -input=false -lock-timeout=5m -out=/tmp/staging.tfplan
+      - run: terraform -chdir=infra/staging apply -input=false /tmp/staging.tfplan

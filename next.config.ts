@@ -1,7 +1,16 @@
 import type { NextConfig } from "next";
+import { validateFirebaseConfig } from "./src/lib/firebase-config";
+
+validateFirebaseConfig({
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+}, process.env.GOOGLE_CLOUD_PROJECT);
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  env: { FIREBASE_WEB_PROJECT_ID: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID },
   async headers() {
     return [
       { source: "/:path*", headers: [
