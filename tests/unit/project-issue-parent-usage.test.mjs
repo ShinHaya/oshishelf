@@ -48,7 +48,7 @@ test("the parent joins at exactly 50% remaining and above, and is excluded below
 test("the 5-hour window is found by its 300-minute duration in either slot", () => {
   assert.deepEqual(
     normalizeCodexRateLimits(response({ primary: fiveHour(46), secondary: weekly(90) }), { fetchedAt }),
-    { status: "ok", remainingPercent: 54, windowDurationMins: 300, resetsAt: 1_900_000_000, fetchedAt },
+    { status: "ok", remainingPercent: 54, windowDurationMins: 300, fetchedAt },
   );
   // Swapped slots: the weekly value must not be read as the 5-hour one.
   assert.equal(
@@ -66,7 +66,7 @@ test("the 5-hour window is found by its 300-minute duration in either slot", () 
 
 test("the snapshot carries no account, plan, or raw response fields", () => {
   const usage = normalizeCodexRateLimits(response({ primary: fiveHour(10) }), { fetchedAt });
-  assert.deepEqual(Object.keys(usage).sort(), ["fetchedAt", "remainingPercent", "resetsAt", "status", "windowDurationMins"]);
+  assert.deepEqual(Object.keys(usage).sort(), ["fetchedAt", "remainingPercent", "status", "windowDurationMins"]);
 });
 
 test("missing, weekly-only, malformed, or blocked usage is unknown and keeps the parent out", () => {
@@ -175,7 +175,7 @@ test("an App Server error or early exit fails the fetch", async () => {
 test("readParentUsage never throws and reports closed reason codes", async () => {
   const now = () => fetchedAt;
   const ok = await readParentUsage("codex", { now, spawn: respondingServer(response({ primary: fiveHour(50) })).spawn });
-  assert.deepEqual(ok, { status: "ok", remainingPercent: 50, windowDurationMins: 300, resetsAt: 1_900_000_000, fetchedAt });
+  assert.deepEqual(ok, { status: "ok", remainingPercent: 50, windowDurationMins: 300, fetchedAt });
   assert.deepEqual(await readParentUsage("Claude", { now }), {
     status: "unknown", reason: "parent-usage-unsupported-runtime", fetchedAt,
   });
@@ -381,8 +381,9 @@ test("graph: fixed modes never read usage", async () => {
 
 test("graph: handoff re-judges the parent without touching the running worker", async () => {
   const capabilityRecords = [...capabilities, record("Grok", "grok-4", "worker")];
-  // Discovery and the first assignment see 80%; the handoff sees 30%.
-  const run = graphRun({ usages: [usageAt(80), usageAt(80), usageAt(30)], capabilityRecords });
+  // Discovery, the first assignment, and its dispatch confirmation see 80%;
+  // the handoff sees 30%.
+  const run = graphRun({ usages: [usageAt(80), usageAt(80), usageAt(80), usageAt(30)], capabilityRecords });
   await run.invoke([graphItem(1), graphItem(2)]);
   const before = await run.state();
   assert.deepEqual(before.workerExecutions.map(({ issue, agent }) => [issue, agent]), [[1, "Codex"], [2, "Claude"]]);
@@ -397,6 +398,34 @@ test("graph: handoff re-judges the parent without touching the running worker", 
   assert.equal(byIssue[1].agent, "Codex");
   assert.equal(byIssue[1].attempt, 1);
   assert.equal(byIssue[1].status, "running");
-  assert.equal(run.reads.length, 3);
+  assert.equal(run.reads.length, 4);
   assert.equal(after.parentUsage.remainingPercent, 30);
+});
+
+test("graph: a manual assignment resumed after usage dropped is re-judged before dispatch", async () => {
+  for (const dropped of [usageAt(30), { status: "unknown", reason: "parent-usage-timeout", fetchedAt }]) {
+    let current = usageAt(80);
+    const run = graphRun({ read: async () => current, config: { autoAssign: false } });
+    const prompt = await run.invoke([graphItem(1)]);
+    const offered = prompt.__interrupt__[0].value.assign.workerRoutes.map(({ agent }) => agent);
+    assert.deepEqual(offered, ["Codex", "Claude"]);
+
+    // The operator picks the parent route, but its window drained meanwhile.
+    current = dropped;
+    const reprompt = await run.resume({ assignments: [{ number: 1, agent: "Codex", model: "gpt-5" }] });
+    assert.deepEqual(run.dispatched, []);
+    const value = reprompt.__interrupt__[0].value;
+    assert.equal(value.lastEventError, `invalid-assignment:1:${dropped.reason ?? "parent-usage-low"}`);
+    assert.deepEqual(value.assign.workerRoutes.map(({ agent }) => agent), ["Claude"]);
+
+    await run.resume({ assignments: [{ number: 1, agent: "Claude", model: "sonnet" }] });
+    assert.deepEqual(run.dispatched.map(({ route }) => route.agent), ["Claude"]);
+  }
+});
+
+test("graph: a manual parent assignment still dispatches when usage stays sufficient", async () => {
+  const run = graphRun({ usages: [usageAt(60)], config: { autoAssign: false } });
+  await run.invoke([graphItem(1)]);
+  await run.resume({ assignments: [{ number: 1, agent: "Codex", model: "gpt-5" }] });
+  assert.deepEqual(run.dispatched.map(({ route }) => route.agent), ["Codex"]);
 });

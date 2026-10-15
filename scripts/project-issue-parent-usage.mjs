@@ -77,7 +77,6 @@ export function normalizeCodexRateLimits(result, { fetchedAt } = {}) {
     status: "ok",
     remainingPercent: 100 - used,
     windowDurationMins: PARENT_USAGE_WINDOW_MINS,
-    ...(Number.isSafeInteger(window.resetsAt) ? { resetsAt: window.resetsAt } : {}),
     ...(fetchedAt ? { fetchedAt } : {}),
   };
 }

@@ -45,6 +45,7 @@ import {
 } from "@langchain/langgraph";
 
 import { DEFAULT_CAPABILITIES_OUTPUT, loadOrRefreshCapabilities, refreshWorkerRoutes, verifyWorkerRoute } from "./project-issue-capabilities.mjs";
+import { canonicalizeAgent } from "./project-issue-assignment.mjs";
 import {
   DEFAULT_CONFIG_PATH,
   loadOrchestratorConfig,
@@ -174,7 +175,7 @@ export const OrchestrationState = Annotation.Root({
   workerRoutes: Annotation(),
   /**
    * Latest closed snapshot of the parent's 5-hour usage window (status,
-   * remainingPercent, windowDurationMins, resetsAt, fetchedAt, reason).
+   * remainingPercent, windowDurationMins, fetchedAt, reason).
    * Re-read before new assignments and handoffs; never a raw response.
    */
   parentUsage: Annotation(),
@@ -1577,6 +1578,28 @@ async function refreshParentUsageNode(state, config) {
   return refreshParentUsage(state, config);
 }
 
+/**
+ * A manual assignment resumes inside `assign_routes` after its interrupt, so
+ * the snapshot read before the prompt may be stale by the time the operator
+ * answers. Re-read usage for any pending dispatch on the parent runtime; if
+ * the parent no longer qualifies, drop those assignments and re-prompt with
+ * the fresh pool instead of dispatching.
+ */
+async function confirmParentAssignmentsNode(state, config) {
+  if (state.failureReason || parentWorkerMode(state.config) !== "auto") return {};
+  const parentAgent = canonicalizeAgent(state.config.parent.agent);
+  const onParent = pendingDispatches(state).filter(({ agent }) => canonicalizeAgent(agent) === parentAgent);
+  if (!onParent.length) return {};
+  const usage = await refreshParentUsage(state, config);
+  const decision = parentWorkerDecisionFor({ ...state, ...usage });
+  if (decision.eligible) return usage;
+  return {
+    ...usage,
+    assignments: onParent.map(({ number }) => ({ number, remove: true })),
+    lastEventError: `invalid-assignment:${onParent[0].number}:${decision.reason}`,
+  };
+}
+
 function failRunNode(state) {
   return { runStatus: "failed", summary: buildSummary(state, "failed") };
 }
@@ -1670,6 +1693,7 @@ export function buildOrchestrationGraph({ checkpointer } = {}) {
     .addNode("resolve_triage", resolveTriageNode)
     .addNode("refresh_parent_usage", refreshParentUsageNode)
     .addNode("assign_routes", assignRoutesNode)
+    .addNode("confirm_parent_assignments", confirmParentAssignmentsNode)
     .addNode("preflight_triage_dispatch", preflightTriageDispatchNode)
     .addNode("dispatch_worker", dispatchWorkerNode)
     .addNode("wait_for_events", waitForEventsNode)
@@ -1693,7 +1717,8 @@ export function buildOrchestrationGraph({ checkpointer } = {}) {
       state.lastEventError?.startsWith("triage-") ? "resolve_triage" : "refresh_parent_usage")
     .addConditionalEdges("refresh_parent_usage", failOr("assign_routes"))
     .addConditionalEdges("refresh_handoff_parent_usage", failOr("select_handoff_route"))
-    .addConditionalEdges("assign_routes", assignmentRouter)
+    .addConditionalEdges("assign_routes", failOr("confirm_parent_assignments"))
+    .addConditionalEdges("confirm_parent_assignments", assignmentRouter)
     .addConditionalEdges("preflight_triage_dispatch", triagePreflightRouter)
     .addEdge("dispatch_worker", "wait_for_events")
     .addConditionalEdges("wait_for_events", waitRouter)
