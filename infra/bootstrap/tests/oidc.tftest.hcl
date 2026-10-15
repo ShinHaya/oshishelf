@@ -6,33 +6,10 @@ variables {
   repository_id       = "1406673146"
   repository_owner_id = "23278980"
 }
-run "bootstrap_trust_is_disabled_by_default" {
+run "only_operator_staging_workflow_for_develop_is_trusted" {
   command = plan
   assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github.attribute_condition, "false && assertion.sha == ''")
-    error_message = "The issue branch must not be trusted without an explicitly pinned commit."
+    condition     = google_iam_workload_identity_pool_provider.github.attribute_condition == "assertion.repository_id == '1406673146' && assertion.repository_owner_id == '23278980' && assertion.actor_id == '23278980' && assertion.environment == 'staging' && assertion.workflow_ref == 'ShinHaya/oshishelf/.github/workflows/staging.yml@' + assertion.ref && ((assertion.event_name in ['push', 'workflow_dispatch'] && assertion.ref == 'refs/heads/develop') || (assertion.event_name == 'pull_request' && assertion.base_ref in ['develop', 'refs/heads/develop'] && assertion.ref.matches('^refs/pull/[0-9]+/merge$')))"
+    error_message = "OIDC must keep actor, environment, workflow, event and develop target restrictions without a bootstrap exception."
   }
-}
-run "bootstrap_trust_requires_reviewed_sha_and_operator_environment" {
-  command = plan
-  variables {
-    oauth_bootstrap_sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-  }
-  assert {
-    condition = alltrue([for required in [
-      "assertion.sha == 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'",
-      "assertion.actor_id == '23278980'",
-      "assertion.environment == 'staging'",
-      "assertion.ref == 'refs/heads/issue-49-staging-terraform'",
-      "assertion.workflow_ref == 'ShinHaya/oshishelf/.github/workflows/staging-oauth-bootstrap.yml@refs/heads/issue-49-staging-terraform'"
-    ] : strcontains(google_iam_workload_identity_pool_provider.github.attribute_condition, required)])
-    error_message = "Bootstrap must stay pinned to one commit, the operator, staging environment and the exact workflow."
-  }
-}
-run "reject_mutable_ref_as_bootstrap_sha" {
-  command = plan
-  variables {
-    oauth_bootstrap_sha = "develop"
-  }
-  expect_failures = [var.oauth_bootstrap_sha]
 }

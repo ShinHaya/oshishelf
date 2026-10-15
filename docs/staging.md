@@ -163,36 +163,37 @@ Googleの説明ページのTerraform例にある`oauth_client_id`等をそのま
 非公開GCS stateの権限を運営者とTerraform主体に限定し、ローカルplanは600、CIのplanは一時ファイルとして扱い、成果物として公開しない。
 Actionsではシークレットをplanステップのみに渡し、イメージビルドの環境へ渡さない。
 
-## develop反映前のOAuth専用bootstrap
+## 初回OAuth設定の適用記録
 
-通常のデプロイworkflowがdevelopへ未反映の間は、`staging-oauth-bootstrap.yml`で初回のIAP設定だけを適用できる。
-GitHub SecretはAPIで読み戻せないため、シークレットをローカルへコピーせずActions内で利用する。
-この例外はリポジトリと所有者の数値IDに加え、運営者のactor ID、staging Environment、正確なworkflowパス、作業ブランチ、レビュー済みのcommit SHAに限定する。
-bootstrap変数`oauth_bootstrap_sha`の既定値は空であり、明示的に対象commitを設定した場合だけ一時的に許可される。
-
-1. workflowと公開クライアントIDの差分をレビューしてコミットする。
-2. bootstrapの`oauth_bootstrap_sha`にその40桁SHAを渡し、planがWIF条件の更新だけであることを確認してapplyする。
-3. staging Environmentの許可ブランチに`issue-49-staging-terraform`を一時追加し、対象commitをpushする。required reviewerは維持する。
-4. 運営者がActionsのEnvironment承認を行う。workflowは保存済みのイメージを読み取り、`google_iap_settings.oauth`のみをtargetとするplanを作る。機械的なplan検査でOAuth設定1件のcreate以外を拒否し、アプリの再配置や他のインフラ変更を行わない。
-5. 成功後は`oauth_bootstrap_sha`を空に戻してapplyし、一時的な許可ブランチも削除する。通常のdevelop連携だけを残す。
-
-このworkflowは初回作成専用であり、すでに管理しているOAuth設定の更新や再実行には使わない。
-失敗した場合もSHA制限やEnvironment承認を外して回避せず、ログと実リソースを確認する。
+2026年10月15日、運営者の承認後に[OAuth専用bootstrap](https://github.com/ShinHaya/oshishelf/actions/runs/38690528712)が成功した。
+GitHub EnvironmentのシークレットをActions内で利用し、IAP設定をTerraformで作成した。
+完了後は専用workflow、commit SHAに限定したWIFの一時例外、一時的なEnvironment許可ブランチを削除した。
+匿名アクセスは両方のCloud Run URLでGoogleログインへの302となり、AI診断SAのIDトークンでは200とアプリ本文を確認した。
 
 ## Actionsと権限の境界
 
-`develop`へワークフローを反映し、GitHub Environment `staging`を作成する。
-運営者をrequired reviewerに指定し、deployment branchは`develop`だけに限定する。
-Environment varsに`STAGING_PROJECT_ID`、`STAGING_APP_ORIGIN`、`STAGING_WIF_PROVIDER`、`STAGING_TERRAFORM_ACCOUNT`、`STAGING_DEPLOY_ACCOUNT`を登録する。
-後半3値はbootstrap出力を使う。
+ステージングは運営者の指示により、required reviewerと待機時間を設けず自動デプロイする。
+GitHub Environmentと許可refは`infra/github`でTerraform管理する。
+この変更はステージングだけを対象とし、本番の承認設定や凍結中のmainは変更しない。
 
-同一リポジトリの運営者（GitHub ID `23278980`）による`develop`宛PRでのみ自動apply候補となる。
-`pull_request_target`は権限が強いため、Environment承認前にPRのTerraform、Dockerfile、ビルドスクリプトをレビューする。
-PRのコードを信用できない場合は承認しない。
-forkと他ユーザーのPRは実行しない。
-OIDCはリポジトリと所有者の数値ID、`develop`のrefとworkflowパスに限定する。
-手動実行も`develop`上で行う。
-初回構築前にはActionsを有効にしない。
+同一リポジトリの運営者（GitHub ID `23278980`）による`develop`宛PR、または運営者による`develop`へのpushで起動する。
+PRの作成者とイベント実行者の両方を確認し、forkと他ユーザーのPRはデプロイしない。
+対象commitで再利用可能なCIを実行し、すべて成功した後にdeployジョブへ進む。
+検証ジョブにはEnvironmentのシークレットやOIDCの発行権限を渡さない。
+GitHub Environmentの許可refは`develop`と`refs/pull/*/merge`に限定する。
+WIFでもリポジトリと所有者の数値ID、運営者、staging Environment、workflowパス、イベント、develop宛てのrefを検証する。
+手動実行は`develop`上で行う。
+
+Environment varsは`STAGING_PROJECT_ID`、`STAGING_APP_ORIGIN`、`STAGING_WIF_PROVIDER`、`STAGING_TERRAFORM_ACCOUNT`、`STAGING_DEPLOY_ACCOUNT`である。
+後半3値はbootstrap出力を使う。
+OAuthシークレットはEnvironment Secret `STAGING_IAP_OAUTH_CLIENT_SECRET`に保存し、Terraform planステップだけへ渡す。
+
+`infra/github`のstateは非公開GCSバケットの`github` prefixへ保存する。
+初期化は`terraform -chdir=infra/github init -backend-config="bucket=oshishelf-stg-20261015-tfstate" -backend-config="prefix=github"`で行う。
+GitHub providerは既存の`gh`ログインから取得したトークンをプロセス環境の`GITHUB_TOKEN`へ渡して認証する。
+トークンをコード、tfvars、ログへ出力しない。
+既存Environmentはimportして管理を開始しており、`prevent_destroy`で誤削除を防ぐ。
+このrootはEnvironmentの承認条件と許可refを管理し、既存シークレットの値を取得・変更しない。
 
 | 主体 | 権限と目的 |
 | --- | --- |
@@ -387,3 +388,11 @@ canonical URL、数値形式URLの匿名アクセスと、AI主体のIDトーク
 再planでは、APIが返す無効な電話認証設定による差分が出たため、電話認証OFFも明示した。
 最終的にbootstrapと通常構成の両方でplanが変更なしとなることを確認した。
 ローカルの`pnpm check`は300テストを含め成功し、Terraformのvalidateとmock test 3件も成功した。
+
+## 初回構築後の更新（2026年10月15日）
+
+上記の初回構築時点のOAuth未設定記録は、OAuth専用bootstrapの成功により解消した。
+匿名アクセスはGoogleログインへの302、許可したAI主体は200となることを確認した。
+Firebaseセッション、ログイン済み画面、アプリ経由のAI操作、未許可の有効なGoogleアカウントによる拒否は引き続き未確認である。
+運営者の指示でステージングのrequired reviewerを解除し、Environmentと許可refをTerraform管理に移した。
+自動デプロイの実行結果はPR #58に記録する。
