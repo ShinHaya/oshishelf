@@ -43,3 +43,15 @@ next-env.d.ts
 
 # local tooling
 .playwright-mcp/
+
+# Terraform local state and environment inputs
+**/.terraform/
+*.tfstate*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+
+# Ephemeral GitHub OIDC credentials
+gha-creds-*.json
+
+/infra/bootstrap/backend.tf

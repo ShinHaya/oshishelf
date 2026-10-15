@@ -1,0 +1,10 @@
+.git
+.gitignore
+.gcloudignore
+#!include:.gitignore
+infra
+.next
+node_modules
+.env*
+gha-creds-*.json
+.playwright-mcp

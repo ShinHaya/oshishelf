@@ -13,6 +13,8 @@ pnpm build
 ```
 
 検査とビルドにはクラウドの認証情報は不要です。
+ただしFirebaseの公開設定と`GOOGLE_CLOUD_PROJECT`を同じ環境の値で設定します。
+CIでは架空の公開設定を使います。
 Next.jsの型は `pnpm typecheck` が `next typegen` で生成するため、初回に開発サーバーを起動する必要もありません。
 
 画面から認証、保存、AI生成を試す場合は、Firebase Authentication、Firestore、Vertex AIが利用できる開発用Google CloudプロジェクトとADCが必要です。
@@ -29,10 +31,12 @@ pnpm dev
 cronのOIDC設定とアフィリエイト設定は、その機能を確認するときだけ設定します。
 `.env.local`、サービスアカウント鍵、ADCの内容はコミットしません。
 
-現在のFirebase Web設定は `src/lib/firebase-client.ts` に固定されています。
-別の開発用プロジェクトを使う場合はWeb設定も同じプロジェクトに合わせ、Authenticationのログイン方式とlocalhostの承認済みドメインを確認してください。
-サーバーのプロジェクトIDだけ変更すると、認証先と保存先が一致しません。
+Firebase Web設定は`NEXT_PUBLIC_FIREBASE_*`の4変数で指定します。
+`GOOGLE_CLOUD_PROJECT`と同じプロジェクトの値を使い、Authenticationのログイン方式とlocalhostの承認済みドメインも確認してください。
+公開設定はビルド時にブラウザのコードへ埋め込まれるため、実行時の環境変数の変更だけでは切り替わりません。
+プロジェクトの不一致はビルド時とサーバー起動時に拒否します。
 Web設定は公開情報ですが、サービスアカウント鍵とは別物です。
+新規ステージングの構築とActionsの設定は[構築手順](staging.md)を参照してください。
 
 Firestoreのルールとインデックスは `scripts/setup-firestore.sh` を参照してください。
 このスクリプトと `scripts/seed.mts` はクラウドの状態を変更するため、対象プロジェクトと内容を確認してから実行します。
@@ -68,6 +72,15 @@ MVPの現状では、エミュレーターによるアプリ全体の起動は�
 3. 人間またはAIが `git diff` を読み、下記の項目を確認する。
 4. 指摘を修正したら影響する検査を再実行し、PRテンプレートに結果と未確認の範囲を記載する。
 5. CIの `check` が成功し、未解決の不具合がないことを確認してマージする。
+
+継続開発のPRは`develop`へ向け、完了するIssueをPR本文の独立した行に`Closes #123`と記載します。
+複数の場合は行を分けるか、`Closes #123, #124`と記載します。
+参照だけのIssueは`Related #123`とし、完了していないIssueにclosing keywordを使いません。
+[GitHub標準の自動クローズ](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue)は既定ブランチへのマージだけが対象です。
+mainの凍結は2026年10月15日23:00（日本時間）から開始し、それまでは利用者の指示によりmainも更新できます。
+凍結後も既定ブランチ`main`を維持するため、`Close merged issues` Actionsが`develop`へのマージ後に明示的なclosing行を処理します。
+マージせず閉じたPR、他ブランチ宛てのPR、コードブロックやコメント中の例、別リポジトリのIssueは処理しません。
+Actionsが失敗した場合は実行ログと関連Issueの状態を確認し、原因を直して再実行します。
 
 レビューでは、変更の目的と挙動が一致しているか、未ログインや非所有者からの操作が拒否されるか、下書きや制限付き作品が画面とAI出力へ漏れないかを確認します。
 成人向けの変更では所有者のAI利用同意と閲覧者の表示同意を別々に確認します。

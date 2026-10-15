@@ -1,0 +1,6 @@
+project_id          = "oshishelf-stg-REPLACE"
+billing_account     = "REPLACE"
+repository_id       = "1406673146"
+repository_owner_id = "23278980"
+deployment_branch   = "develop"
+region              = "asia-northeast1"
