@@ -2,8 +2,10 @@
 
 ## ローカル環境
 
-Node.js 22（22.12以上）と `package.json` の `packageManager` に指定したpnpmを使います。
-DockerとCIもNode.js 22に揃えています。
+Node.js 22.23.4と `package.json` の `packageManager` に指定したpnpmを使います。
+DockerとCIも `.node-version` と同じ22.23.4に揃えています。
+この版にはeMudhra中間CAの侵害に対する証明書ストア更新と侵害鍵の拒否が含まれます。
+実行環境を更新するときは、既存コンテナも再ビルドして反映します。
 
 ```bash
 corepack enable

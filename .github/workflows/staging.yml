@@ -59,7 +59,7 @@ jobs:
         run: |
           gcloud auth configure-docker "${TF_VAR_region}-docker.pkg.dev" --quiet
           IMAGE="${TF_VAR_region}-docker.pkg.dev/${TF_VAR_project_id}/staging/app:${GITHUB_RUN_ID}"
-          docker build --build-arg GOOGLE_CLOUD_PROJECT="$TF_VAR_project_id" --build-arg NEXT_PUBLIC_FIREBASE_API_KEY --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID --build-arg NEXT_PUBLIC_FIREBASE_APP_ID -t "$IMAGE" .
+          docker build --pull --build-arg GOOGLE_CLOUD_PROJECT="$TF_VAR_project_id" --build-arg NEXT_PUBLIC_FIREBASE_API_KEY --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID --build-arg NEXT_PUBLIC_FIREBASE_APP_ID -t "$IMAGE" .
           docker push "$IMAGE"
           DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE")
           echo "TF_VAR_image=$DIGEST" >> "$GITHUB_ENV"
