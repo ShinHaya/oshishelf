@@ -1,0 +1,21 @@
+# Copy this file to state/issue-orchestrator.yaml and fill in the values.
+# The runtime copy is ignored by Git and is auto-loaded by the orchestrator and skill.
+# Select targets with --issues. No GitHub Project or Project token is needed.
+
+run:
+  maxParallel: 4
+  releasePolicy: merged
+  unavailableModels: none
+  unavailableAgents: none
+  # Whether the calling Parent agent also receives worker routes:
+  #   auto   - only while its 5-hour usage window has >= 50% left (default)
+  #   always - always (legacy `true`)
+  #   never  - never
+  # Legacy `false` (the old default) is read as auto; write `never` to opt out.
+  parentAsWorker: auto
+  # Opt-in only: assisted also requires a local measured-evaluation approval record.
+  triage:
+    mode: off
+    model: jev-1.13.0
+    maxRequests: 20
+    allowPrivateIssues: false

@@ -1,0 +1,39 @@
+{
+  "aliases": [],
+  "enabledByDefault": false,
+  "retired": false,
+  "probeArgs": [],
+  "promptArgs": [],
+  "skills": {
+    "discoveryDirs": [
+      ".opencode/skills"
+    ]
+  },
+  "id": "opencode",
+  "name": "OpenCode",
+  "evaluationOrder": 4,
+  "commands": [
+    "opencode"
+  ],
+  "models": {
+    "args": [
+      "models"
+    ],
+    "parser": "provider-models"
+  },
+  "selectorArgs": [
+    "run",
+    "--model",
+    "{model}",
+    "--auto"
+  ],
+  "subagents": {
+    "format": "opencode-markdown",
+    "directory": ".opencode/agents",
+    "models": {
+      "reasoning": "inherit",
+      "fast": "inherit"
+    }
+  },
+  "usageUnavailable": "five-hour-query-unavailable"
+}

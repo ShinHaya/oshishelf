@@ -1,0 +1,99 @@
+{
+  "aliases": [
+    "claude-code"
+  ],
+  "enabledByDefault": true,
+  "retired": false,
+  "probeArgs": [
+    "-p"
+  ],
+  "promptArgs": [
+    "-p"
+  ],
+  "skills": {
+    "discoveryDirs": [
+      ".claude/skills"
+    ]
+  },
+  "id": "claude",
+  "name": "Claude",
+  "evaluationOrder": 1,
+  "commands": [
+    "claude"
+  ],
+  "auth": {
+    "args": [
+      "auth",
+      "status"
+    ],
+    "parser": "logged-in-json"
+  },
+  "models": {
+    "args": [],
+    "parser": "claude-local"
+  },
+  "selectorArgs": [
+    "--model",
+    "{model}",
+    "--permission-mode",
+    "bypassPermissions"
+  ],
+  "subagents": {
+    "format": "claude-markdown",
+    "directory": ".claude/agents",
+    "models": {
+      "reasoning": "opus",
+      "fast": "sonnet"
+    }
+  },
+  "hooks": [
+    {
+      "file": ".claude/settings.json",
+      "event": "PreToolUse",
+      "entry": {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-repository.sh"
+          }
+        ]
+      }
+    }
+  ],
+  "usage": {
+    "transport": "control-stdio",
+    "command": [
+      "claude",
+      "--safe-mode",
+      "--tools=",
+      "--no-session-persistence",
+      "--input-format",
+      "stream-json",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "-p"
+    ],
+    "initialize": {
+      "method": "initialize"
+    },
+    "request": {
+      "method": "get_usage",
+      "params": {
+        "skip_behaviors": true
+      }
+    },
+    "windows": "$.rate_limits.five_hour",
+    "windowSelection": "self",
+    "usedPercent": "utilization",
+    "windowDurationMins": 300,
+    "percentFormat": "number",
+    "resetsAt": "resets_at",
+    "resetFormat": "iso",
+    "blocked": [
+      "$.rate_limits_available == false",
+      "locked_reason != null"
+    ]
+  }
+}

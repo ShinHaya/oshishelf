@@ -1,0 +1,14 @@
+{
+  "id": "antigravity",
+  "name": "Antigravity",
+  "aliases": [
+    "agy"
+  ],
+  "evaluationOrder": 99,
+  "enabledByDefault": false,
+  "retired": true,
+  "commands": [
+    "agy",
+    "antigravity"
+  ]
+}

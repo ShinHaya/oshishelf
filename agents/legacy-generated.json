@@ -1,0 +1,82 @@
+{
+  ".claude/agents/deep-reasoner.md": {
+    "type": "file",
+    "hash": "cead1d85460b447cf3ce856027e262d85d34efc7997d8d2f31d94339359afce5"
+  },
+  ".claude/agents/fast-worker.md": {
+    "type": "file",
+    "hash": "eb1b1ed56fcc7b1474622324d4287726ba18b428485eb58ed8c8adc9aaf44639"
+  },
+  ".agents/agents/fast-worker/agent.json": {
+    "type": "file",
+    "hash": "1cafba87c28ac581e9f6d0ac941f1c71debb7271c62216160f99e831484f3766"
+  },
+  ".agents/agents/deep-reasoner/agent.json": {
+    "type": "file",
+    "hash": "93ebe2f4ec01b7e2a5ed5e0794e2e3fb8d3f0ee8c6f417cb50625c13da253d6b"
+  },
+  ".claude/skills/create-issue": {
+    "type": "link",
+    "target": "../../skills/create-issue"
+  },
+  ".claude/skills/requirements-review": {
+    "type": "link",
+    "target": "../../skills/requirements-review"
+  },
+  ".claude/skills/orchestrate-issues-implementation": {
+    "type": "link",
+    "target": "../../skills/orchestrate-issues-implementation"
+  },
+  ".claude/skills/handoff-issue": {
+    "type": "link",
+    "target": "../../skills/handoff-issue"
+  },
+  ".claude/skills/issue-implementation": {
+    "type": "link",
+    "target": "../../skills/issue-implementation"
+  },
+  ".claude/skills/writing-good-tests": {
+    "type": "link",
+    "target": "../../skills/writing-good-tests"
+  },
+  ".claude/skills/design-doc-review": {
+    "type": "link",
+    "target": "../../skills/design-doc-review"
+  },
+  ".claude/skills/architecture-review": {
+    "type": "link",
+    "target": "../../skills/architecture-review"
+  },
+  ".agents/skills/create-issue": {
+    "type": "link",
+    "target": "../../skills/create-issue"
+  },
+  ".agents/skills/requirements-review": {
+    "type": "link",
+    "target": "../../skills/requirements-review"
+  },
+  ".agents/skills/orchestrate-issues-implementation": {
+    "type": "link",
+    "target": "../../skills/orchestrate-issues-implementation"
+  },
+  ".agents/skills/handoff-issue": {
+    "type": "link",
+    "target": "../../skills/handoff-issue"
+  },
+  ".agents/skills/issue-implementation": {
+    "type": "link",
+    "target": "../../skills/issue-implementation"
+  },
+  ".agents/skills/writing-good-tests": {
+    "type": "link",
+    "target": "../../skills/writing-good-tests"
+  },
+  ".agents/skills/design-doc-review": {
+    "type": "link",
+    "target": "../../skills/design-doc-review"
+  },
+  ".agents/skills/architecture-review": {
+    "type": "link",
+    "target": "../../skills/architecture-review"
+  }
+}
