@@ -1,0 +1,11 @@
+{
+  "$schema": "../agents/config.schema.json",
+  "agents": {
+    "enabled": ["claude", "codex", "opencode", "grok"]
+  },
+  "repository": {
+    "baseBranch": "develop",
+    "qualityGates": ["pnpm check", "pnpm build"]
+  },
+  "localSkills": []
+}
