@@ -5,7 +5,16 @@
   },
   "repository": {
     "baseBranch": "develop",
-    "qualityGates": ["pnpm check", "pnpm build"]
+    "qualityGates": ["pnpm check", "pnpm build"],
+    "documents": {
+      "requirements": "README.md",
+      "architecture": "README.md",
+      "security": "README.md",
+      "development": "docs/development.md",
+      "testing": "docs/development.md",
+      "manualTest": "docs/development.md",
+      "githubOperations": "docs/github-operations.md"
+    }
   },
   "localSkills": []
 }
