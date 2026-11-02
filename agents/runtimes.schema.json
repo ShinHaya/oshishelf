@@ -1,0 +1,341 @@
+{
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "aliases": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      },
+      "uniqueItems": true
+    },
+    "evaluationOrder": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "enabledByDefault": {
+      "type": "boolean"
+    },
+    "retired": {
+      "type": "boolean"
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      },
+      "uniqueItems": true,
+      "minItems": 1
+    },
+    "auth": {
+      "type": "object",
+      "properties": {
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          }
+        },
+        "parser": {
+          "enum": [
+            "login-status",
+            "logged-in-json"
+          ]
+        }
+      },
+      "required": [
+        "args",
+        "parser"
+      ],
+      "additionalProperties": false
+    },
+    "models": {
+      "type": "object",
+      "properties": {
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          }
+        },
+        "parser": {
+          "enum": [
+            "codex-models",
+            "claude-local",
+            "bullet-models",
+            "model-lines",
+            "provider-models",
+            "json-models"
+          ]
+        }
+      },
+      "required": [
+        "args",
+        "parser"
+      ],
+      "additionalProperties": false
+    },
+    "selectorArgs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      }
+    },
+    "probeArgs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      }
+    },
+    "promptArgs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      }
+    },
+    "skills": {
+      "type": "object",
+      "properties": {
+        "discoveryDirs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "discoveryDirs"
+      ],
+      "additionalProperties": false
+    },
+    "subagents": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "enum": [
+            "claude-markdown",
+            "opencode-markdown",
+            "agent-json"
+          ]
+        },
+        "directory": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "models": {
+          "type": "object",
+          "properties": {
+            "reasoning": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "fast": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          },
+          "required": [
+            "reasoning",
+            "fast"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "format",
+        "directory",
+        "models"
+      ],
+      "additionalProperties": false
+    },
+    "hooks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "event": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "entry": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "file",
+          "event",
+          "entry"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "transport": {
+          "enum": [
+            "jsonrpc-stdio",
+            "exec-json",
+            "control-stdio"
+          ]
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "minItems": 1
+        },
+        "initialize": {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "params": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        "initialized": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "request": {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "params": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        "windows": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "usedPercent": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "windowDurationMins": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "blocked": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          }
+        },
+        "windowSelection": {
+          "enum": [
+            "children",
+            "self"
+          ]
+        },
+        "percentFormat": {
+          "enum": [
+            "integer",
+            "number"
+          ]
+        },
+        "resetsAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resetFormat": {
+          "enum": [
+            "iso"
+          ]
+        }
+      },
+      "required": [
+        "transport",
+        "command",
+        "windows",
+        "usedPercent",
+        "windowDurationMins"
+      ],
+      "additionalProperties": false
+    },
+    "usageUnavailable": {
+      "enum": [
+        "five-hour-query-unavailable"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "aliases",
+    "evaluationOrder",
+    "enabledByDefault",
+    "retired",
+    "commands"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

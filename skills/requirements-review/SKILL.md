@@ -1,18 +1,24 @@
 ---
 name: requirements-review
-description: Use when a diff adds, changes, or removes content in README.md — before committing it, while drafting it, or when asked to review requirement wording. Not for code diffs or other docs.
+description: Use when a diff adds, changes, or removes content in the repository's canonical requirements document — before committing it, while drafting it, or when asked to review requirement wording. Not for code diffs or other docs.
 user-invocable: true
 ---
 
 # Requirements Review
 
-Review a diff to `README.md` against the five criteria below. The
-criteria are owned by this skill; development links here without duplicating them.
+Resolve `repository.documents.requirements` with
+`node scripts/repository-config.mjs --get documents`. If it is omitted, locate
+the requirements document through this repository's `AGENTS.md`. Use that actual
+path throughout the review; report a missing target rather than inventing one.
+
+Review a diff to the canonical requirements document against the five criteria
+below. The criteria are owned by this skill; development links here without
+duplicating them.
 
 ## Scope
 
-- **Review target: the diff to `README.md` only.** Judge unchanged
-  text only as context (e.g. a contradiction between new and existing text).
+- **Review target: the diff to the canonical requirements document only.**
+  Judge unchanged text only as context (e.g. a contradiction between new and existing text).
 - Do not review code diffs (`/code-review` owns that) and do not judge the
   correctness of sample code embedded in the documentation.
 
@@ -25,8 +31,8 @@ criteria are owned by this skill; development links here without duplicating the
    requirement is met (by test, inspection, or measurement). Flag requirements
    with no observable pass/fail condition ("the UI should feel trustworthy").
 3. **Consistent** — the change contradicts neither the rest of
-   `README.md` nor the product principles stated in the repository's
-   agent instructions (`AGENTS.md`). A diff that silently weakens a
+   the canonical requirements document nor the product principles stated in
+   `AGENTS.md`. A diff that silently weakens a
    non-negotiable requirement is a `blocker`.
 4. **Failure paths specified** — where the diff introduces behavior, the
    failure / exception / interruption side is stated too (errors, external
@@ -50,7 +56,7 @@ verdict: PASS | NEEDS_CHANGES | NIT_ONLY
 
 ## Findings
 
-1. [<severity>] README.md:<line> — <one-sentence problem statement>
+1. [<severity>] <requirements-document>:<line> — <one-sentence problem statement>
    <2-4 sentences of explanation, including a concrete suggested rewording>
 
 ## Criterion coverage

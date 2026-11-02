@@ -1,0 +1,60 @@
+[
+  {
+    "schemaVersion": 1,
+    "eventId": "evt-route-1",
+    "correlationId": "run-example-1",
+    "occurredAt": "2026-07-22T00:00:01.000Z",
+    "type": "route_decision",
+    "issueNumber": 9001,
+    "payload": {
+      "role": "implementer",
+      "mode": "single-agent",
+      "candidates": [
+        { "agent": "Codex", "model": "gpt-example", "verified": true },
+        { "agent": "Claude", "model": "sonnet-example", "verified": true },
+        { "agent": "Grok", "model": "grok-example", "verified": true },
+        { "agent": "Gemini", "model": "gemini-example", "verified": true }
+      ],
+      "selected": { "agent": "Codex", "model": "gpt-example" },
+      "reasonCode": "policy_preferred"
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "eventId": "evt-role-1",
+    "correlationId": "run-example-1",
+    "occurredAt": "2026-07-22T00:00:02.000Z",
+    "type": "role_execution",
+    "issueNumber": 9001,
+    "payload": {
+      "role": "implementer",
+      "agent": "Codex",
+      "model": "gpt-example",
+      "cliVersion": "1.2.3",
+      "durationMs": { "availability": "exact", "value": 1200 },
+      "tokens": {
+        "input": { "availability": "exact", "value": 100 },
+        "output": { "availability": "estimate", "value": 40 },
+        "total": { "availability": "unavailable", "reasonCode": "provider_not_exposed" }
+      },
+      "costUsd": { "availability": "unavailable", "reasonCode": "provider_not_exposed" },
+      "exitClassification": "success"
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "eventId": "evt-terminal-1",
+    "correlationId": "run-example-1",
+    "occurredAt": "2026-07-22T00:00:03.000Z",
+    "type": "terminal_outcome",
+    "issueNumber": 9001,
+    "payload": {
+      "status": "merged",
+      "failureReasonCode": "none",
+      "prState": "merged",
+      "humanIntervention": false,
+      "handoffCount": 0,
+      "wasteReasonCodes": []
+    }
+  }
+]

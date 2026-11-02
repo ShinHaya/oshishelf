@@ -1,0 +1,35 @@
+{
+  "aliases": [],
+  "enabledByDefault": true,
+  "retired": false,
+  "probeArgs": [
+    "-p"
+  ],
+  "promptArgs": [
+    "-p"
+  ],
+  "skills": {
+    "discoveryDirs": [
+      ".agents/skills"
+    ]
+  },
+  "id": "grok",
+  "name": "Grok",
+  "evaluationOrder": 2,
+  "commands": [
+    "grok"
+  ],
+  "models": {
+    "args": [
+      "models"
+    ],
+    "parser": "bullet-models"
+  },
+  "selectorArgs": [
+    "--model",
+    "{model}",
+    "--permission-mode",
+    "bypassPermissions"
+  ],
+  "usageUnavailable": "five-hour-query-unavailable"
+}

@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "files": {
+    ".agents/agents/deep-reasoner/agent.json": {
+      "type": "file",
+      "hash": "d4f47c25618d17e9094f1daddce5dc7bbf6afbd5826b60011a811a8637880c9f"
+    },
+    ".agents/agents/fast-worker/agent.json": {
+      "type": "file",
+      "hash": "439cf45485692bdc0ed87e90c20a6f2ef73811d36df05b39a93c76c4460037c9"
+    },
+    ".agents/skills/architecture-review": {
+      "type": "link",
+      "target": "../../skills/architecture-review"
+    },
+    ".agents/skills/create-issue": {
+      "type": "link",
+      "target": "../../skills/create-issue"
+    },
+    ".agents/skills/design-doc-review": {
+      "type": "link",
+      "target": "../../skills/design-doc-review"
+    },
+    ".agents/skills/handoff-issue": {
+      "type": "link",
+      "target": "../../skills/handoff-issue"
+    },
+    ".agents/skills/issue-implementation": {
+      "type": "link",
+      "target": "../../skills/issue-implementation"
+    },
+    ".agents/skills/orchestrate-issues-implementation": {
+      "type": "link",
+      "target": "../../skills/orchestrate-issues-implementation"
+    },
+    ".agents/skills/orchestrate-project-issues": {
+      "type": "link",
+      "target": "../../skills/orchestrate-project-issues"
+    },
+    ".agents/skills/requirements-review": {
+      "type": "link",
+      "target": "../../skills/requirements-review"
+    },
+    ".agents/skills/writing-good-tests": {
+      "type": "link",
+      "target": "../../skills/writing-good-tests"
+    },
+    ".claude/agents/deep-reasoner.md": {
+      "type": "file",
+      "hash": "3a26cffe299036e733cfd8fd8c9db4adbc60b6426967fc9787624ec223365030"
+    },
+    ".claude/agents/fast-worker.md": {
+      "type": "file",
+      "hash": "eb0d4581cb1b5cbe80d555d1946501a6ae13f03dc4fc224a9b4949b2365d87f2"
+    },
+    ".claude/skills/architecture-review": {
+      "type": "link",
+      "target": "../../skills/architecture-review"
+    },
+    ".claude/skills/create-issue": {
+      "type": "link",
+      "target": "../../skills/create-issue"
+    },
+    ".claude/skills/design-doc-review": {
+      "type": "link",
+      "target": "../../skills/design-doc-review"
+    },
+    ".claude/skills/handoff-issue": {
+      "type": "link",
+      "target": "../../skills/handoff-issue"
+    },
+    ".claude/skills/issue-implementation": {
+      "type": "link",
+      "target": "../../skills/issue-implementation"
+    },
+    ".claude/skills/orchestrate-issues-implementation": {
+      "type": "link",
+      "target": "../../skills/orchestrate-issues-implementation"
+    },
+    ".claude/skills/orchestrate-project-issues": {
+      "type": "link",
+      "target": "../../skills/orchestrate-project-issues"
+    },
+    ".claude/skills/requirements-review": {
+      "type": "link",
+      "target": "../../skills/requirements-review"
+    },
+    ".claude/skills/writing-good-tests": {
+      "type": "link",
+      "target": "../../skills/writing-good-tests"
+    },
+    ".opencode/agents/deep-reasoner.md": {
+      "type": "file",
+      "hash": "53bfeb7f215917125b37dbdb69563dc18f78fb17e03b1000ec806ed067ecb4e0"
+    },
+    ".opencode/agents/fast-worker.md": {
+      "type": "file",
+      "hash": "b13db9b59be08974a1bf8017a12e185a878b88e27111ba119022baa75555a473"
+    },
+    ".opencode/skills/architecture-review": {
+      "type": "link",
+      "target": "../../skills/architecture-review"
+    },
+    ".opencode/skills/create-issue": {
+      "type": "link",
+      "target": "../../skills/create-issue"
+    },
+    ".opencode/skills/design-doc-review": {
+      "type": "link",
+      "target": "../../skills/design-doc-review"
+    },
+    ".opencode/skills/handoff-issue": {
+      "type": "link",
+      "target": "../../skills/handoff-issue"
+    },
+    ".opencode/skills/issue-implementation": {
+      "type": "link",
+      "target": "../../skills/issue-implementation"
+    },
+    ".opencode/skills/orchestrate-issues-implementation": {
+      "type": "link",
+      "target": "../../skills/orchestrate-issues-implementation"
+    },
+    ".opencode/skills/orchestrate-project-issues": {
+      "type": "link",
+      "target": "../../skills/orchestrate-project-issues"
+    },
+    ".opencode/skills/requirements-review": {
+      "type": "link",
+      "target": "../../skills/requirements-review"
+    },
+    ".opencode/skills/writing-good-tests": {
+      "type": "link",
+      "target": "../../skills/writing-good-tests"
+    }
+  },
+  "hooks": [
+    {
+      "file": ".claude/settings.json",
+      "event": "PreToolUse",
+      "entry": {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "# ai-template:claude\n\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-repository.sh"
+          }
+        ]
+      }
+    }
+  ]
+}

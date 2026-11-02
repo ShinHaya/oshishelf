@@ -1,24 +1,29 @@
 ---
 name: architecture-review
-description: Use when README.md (or another architecture / technology-selection document) is created or changed, or when asked to review an architecture decision. Not for requirements, per-Issue design docs, or code diffs.
+description: Use when the repository's architecture / technology-selection document is created or changed, or when asked to review an architecture decision. Not for requirements, per-Issue design docs, or code diffs.
 user-invocable: true
 ---
 
 # Architecture Review
 
-Review `README.md` (or a diff to it) against the five criteria
-below. This skill owns the criteria; development links here without duplication.
+Resolve `repository.documents.architecture` and `.requirements` with
+`node scripts/repository-config.mjs --get documents`. For omitted locations,
+follow this repository's `AGENTS.md`. Use the actual documents and paths in
+findings; report missing inputs rather than assuming a particular file layout.
+
+Review the canonical architecture document (or a diff to it) against the five
+criteria below. This skill owns the criteria; development links here without duplication.
 
 Judge everything against **this project's actual context** — its deployment
 shape, user count, and operating environment as stated in
-`README.md` and `AGENTS.md`. Do not import expectations
+the canonical requirements and architecture documents. Do not import expectations
 from a different shape of system (for example demanding horizontal scaling,
 HA clusters, or fleet observability from a single-user desktop app, or
 ignoring multi-tenant isolation in a hosted service). Where a classic concern
 genuinely does not apply, say "not applicable" explicitly under Criterion
-coverage rather than inventing a finding. The project's non-negotiable
-requirements (`AGENTS.md`) are fixed inputs — review whether the
-architecture *satisfies* them, never whether they are right.
+coverage rather than inventing a finding. The non-negotiable requirements
+stated in `AGENTS.md` and the canonical requirements document are fixed inputs — review whether the architecture
+*satisfies* them, never whether they are right.
 
 When the document names repository files, APIs, or implemented behavior,
 verify those claims against the current code before judging — a confirmed
@@ -28,8 +33,8 @@ finding.
 ## Review criteria (priority order)
 
 1. **Requirements and constraint fit** — every architectural choice satisfies
-   the project's non-negotiable requirements (`AGENTS.md`) and
-   the quality attributes the requirements actually prioritize. Make trade-off
+   the non-negotiable requirements stated in `AGENTS.md` and the requirements
+   document, and the quality attributes the requirements actually prioritize. Make trade-off
    points explicit: which quality was sacrificed for which, and is that
    consistent with the requirements' priorities?
 2. **System boundaries and data flow** — process / trust boundaries are drawn,
@@ -67,7 +72,7 @@ verdict: PASS | NEEDS_CHANGES | NIT_ONLY
 
 ## Findings
 
-1. [<severity>] README.md:<line> — <one-sentence problem statement>
+1. [<severity>] <architecture-document>:<line> — <one-sentence problem statement>
    <2-4 sentences of explanation, including a concrete suggested fix>
 
 ## Criterion coverage

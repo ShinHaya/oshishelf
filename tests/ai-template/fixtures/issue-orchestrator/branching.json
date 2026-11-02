@@ -1,0 +1,34 @@
+{
+  "items": [
+    {
+      "number": 201,
+      "title": "A",
+      "url": "https://example.invalid/issues/201",
+      "status": "Ready",
+      "priority": "P1",
+      "size": "M",
+      "startDate": "2026-07-15",
+      "dependencies": []
+    },
+    {
+      "number": 202,
+      "title": "B",
+      "url": "https://example.invalid/issues/202",
+      "status": "Ready",
+      "priority": "P2",
+      "size": "S",
+      "startDate": "2026-07-16",
+      "dependencies": [201]
+    },
+    {
+      "number": 203,
+      "title": "C",
+      "url": "https://example.invalid/issues/203",
+      "status": "Ready",
+      "priority": "P1",
+      "size": "M",
+      "startDate": "2026-07-16",
+      "dependencies": [201]
+    }
+  ]
+}

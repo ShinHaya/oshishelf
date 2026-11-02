@@ -105,6 +105,14 @@ case "$COMMON" in
   *) die "unexpected Git common directory: $COMMON" ;;
 esac
 
+# Lifecycle identities use registered canonical IDs; disabled identities may hand off.
+if [ -n "$AGENT" ]; then
+  command -v node >/dev/null 2>&1 || die "runtime registration requires Node.js"
+  REGISTRY_CLI=$(cd "$(dirname "$0")" && pwd)/ai-template.mjs
+  AGENT=$(node "$REGISTRY_CLI" agents "resolve=$AGENT" --root "$REPO") \
+    || die "unknown or retired agent (see ai-template.mjs agents list)"
+fi
+
 STATE_ROOT="$COMMON/issue-worktrees"
 STATE_FILE="$STATE_ROOT/$ISSUE.json"
 LOCK_DIR="$STATE_ROOT/$ISSUE.lock"
@@ -272,16 +280,25 @@ case "$COMMAND" in
     if worktree_registered "$WORKTREE" || [ -e "$WORKTREE" ]; then
       die "partial state: worktree path already exists without lifecycle metadata: $WORKTREE"
     fi
+    BASE_BRANCH=main
+    if [ -e "$PRIMARY/.ai-template/config.json" ]; then
+      command -v node >/dev/null 2>&1 || die "configured repository settings require Node.js"
+      CONFIG_READER=$(cd "$(dirname "$0")" && pwd)/repository-config.mjs
+      BASE_BRANCH=$(node "$CONFIG_READER" --root "$PRIMARY" --get baseBranch) \
+        || die "cannot read repository configuration"
+    else
+      note "no repository configuration in primary checkout $PRIMARY; using default base branch main"
+    fi
     if ! git -C "$PRIMARY" fetch origin; then
       note "fetch origin failed; checking existing local base refs"
     fi
-    if git -C "$PRIMARY" rev-parse --verify origin/develop >/dev/null 2>&1; then
-      BASE_REF=origin/develop
-    elif git -C "$PRIMARY" rev-parse --verify develop >/dev/null 2>&1; then
-      BASE_REF=develop
-      note "origin/develop is unavailable; using local develop as the worktree base"
+    if git -C "$PRIMARY" rev-parse --verify "refs/remotes/origin/$BASE_BRANCH" >/dev/null 2>&1; then
+      BASE_REF="refs/remotes/origin/$BASE_BRANCH"
+    elif git -C "$PRIMARY" rev-parse --verify "refs/heads/$BASE_BRANCH" >/dev/null 2>&1; then
+      BASE_REF="refs/heads/$BASE_BRANCH"
+      note "origin/$BASE_BRANCH is unavailable; using local $BASE_BRANCH as the worktree base"
     else
-      die "neither origin/develop nor local develop is available"
+      die "neither origin/$BASE_BRANCH nor local $BASE_BRANCH is available"
     fi
     mkdir -p "$PRIMARY/.worktrees"
     git -C "$PRIMARY" worktree add -b "$BRANCH" "$WORKTREE" "$BASE_REF"

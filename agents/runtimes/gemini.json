@@ -1,0 +1,36 @@
+{
+  "aliases": [],
+  "enabledByDefault": true,
+  "retired": false,
+  "probeArgs": [],
+  "promptArgs": [],
+  "skills": {
+    "discoveryDirs": [
+      ".agents/skills"
+    ]
+  },
+  "id": "gemini",
+  "name": "Gemini",
+  "evaluationOrder": 3,
+  "commands": [
+    "gemini"
+  ],
+  "models": {
+    "args": [
+      "models"
+    ],
+    "parser": "model-lines"
+  },
+  "selectorArgs": [
+    "--model",
+    "{model}"
+  ],
+  "subagents": {
+    "format": "agent-json",
+    "directory": ".agents/agents",
+    "models": {
+      "reasoning": "inherit",
+      "fast": "inherit"
+    }
+  }
+}

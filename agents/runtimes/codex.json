@@ -1,0 +1,77 @@
+{
+  "aliases": [],
+  "enabledByDefault": true,
+  "retired": false,
+  "probeArgs": [
+    "--skip-git-repo-check"
+  ],
+  "promptArgs": [],
+  "skills": {
+    "discoveryDirs": [
+      ".agents/skills"
+    ]
+  },
+  "id": "codex",
+  "name": "Codex",
+  "evaluationOrder": 0,
+  "commands": [
+    "codex"
+  ],
+  "auth": {
+    "args": [
+      "login",
+      "status"
+    ],
+    "parser": "login-status"
+  },
+  "models": {
+    "args": [
+      "debug",
+      "models"
+    ],
+    "parser": "codex-models"
+  },
+  "selectorArgs": [
+    "exec",
+    "-m",
+    "{model}"
+  ],
+  "subagents": {
+    "format": "agent-json",
+    "directory": ".agents/agents",
+    "models": {
+      "reasoning": "inherit",
+      "fast": "inherit"
+    }
+  },
+  "usage": {
+    "transport": "jsonrpc-stdio",
+    "command": [
+      "codex",
+      "app-server"
+    ],
+    "initialize": {
+      "method": "initialize",
+      "params": {
+        "clientInfo": {
+          "name": "issue-orchestrator",
+          "version": "1"
+        }
+      }
+    },
+    "initialized": "initialized",
+    "request": {
+      "method": "account/rateLimits/read",
+      "params": {
+        "excludeResetCreditDetails": true
+      }
+    },
+    "windows": "$.rateLimitsByLimitId.codex | $.rateLimits",
+    "usedPercent": "usedPercent",
+    "windowDurationMins": "windowDurationMins",
+    "blocked": [
+      "$.ordinaryUsageAllowed == false",
+      "rateLimitReachedType != null"
+    ]
+  }
+}
