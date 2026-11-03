@@ -2,7 +2,7 @@
   "version": 1,
   "source": {
     "repository": "ShinHaya/ai-coding-template",
-    "commit": "db7c2c0b27c4d8b8447b77f559415de0f3c0c062"
+    "commit": "729153c1f52a605e42ee617cd80ad3493f752ba4"
   },
   "files": {
     ".claude/hooks/guard-repository.sh": {
@@ -202,7 +202,7 @@
       "executable": false
     },
     "scripts/setup-hooks.sh": {
-      "sha256": "56bce4ce921245f457aa37ee17a6bc457dc6cf69e954a85a0d8611aa44ae192b",
+      "sha256": "731ed9fc046228d703a0c9fcc03c3f63e1854a51117c265498ba54955c0bb396",
       "executable": true
     },
     "scripts/test-issue-worktree.sh": {
