@@ -2,40 +2,58 @@
   "aliases": [],
   "enabledByDefault": true,
   "retired": false,
-  "probeArgs": [
-    "--skip-git-repo-check"
-  ],
+  "probeArgs": ["--skip-git-repo-check"],
   "promptArgs": [],
   "skills": {
-    "discoveryDirs": [
-      ".agents/skills"
-    ]
+    "discoveryDirs": [".agents/skills"]
   },
   "id": "codex",
   "name": "Codex",
   "evaluationOrder": 0,
-  "commands": [
-    "codex"
-  ],
+  "commands": ["codex"],
   "auth": {
-    "args": [
-      "login",
-      "status"
-    ],
+    "args": ["login", "status"],
     "parser": "login-status"
   },
   "models": {
-    "args": [
-      "debug",
-      "models"
-    ],
+    "args": ["debug", "models"],
     "parser": "codex-models"
   },
-  "selectorArgs": [
-    "exec",
-    "-m",
-    "{model}"
-  ],
+  "selectorArgs": ["exec", "-m", "{model}"],
+  "permissions": {
+    "flags": [
+      "-s",
+      "--sandbox",
+      "-c",
+      "--config",
+      "-p",
+      "--profile",
+      "-P",
+      "--permission-profile",
+      "--add-dir",
+      "--full-auto",
+      "--approve-for-me",
+      "--dangerously-bypass-approvals-and-sandbox",
+      "--dangerously-bypass-hook-trust"
+    ],
+    "profiles": {
+      "workspace-write": {
+        "args": [],
+        "enforcement": "inherited",
+        "network": true
+      },
+      "worktree-setup": {
+        "args": [],
+        "enforcement": "inherited",
+        "network": true
+      },
+      "read-only": {
+        "args": ["-s", "read-only"],
+        "enforcement": "cli",
+        "network": false
+      }
+    }
+  },
   "subagents": {
     "format": "agent-json",
     "directory": ".agents/agents",
@@ -46,10 +64,7 @@
   },
   "usage": {
     "transport": "jsonrpc-stdio",
-    "command": [
-      "codex",
-      "app-server"
-    ],
+    "command": ["codex", "app-server"],
     "initialize": {
       "method": "initialize",
       "params": {

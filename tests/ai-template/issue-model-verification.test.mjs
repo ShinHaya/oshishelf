@@ -1,22 +1,54 @@
 import { loadRuntimeRegistry } from "../../scripts/ai-template/registry.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, rm, readFile, writeFile, rename } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  rm,
+  readFile,
+  writeFile,
+  rename,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { discoverCapabilities, loadOrRefreshCapabilities, refreshWorkerRoutes, verifyWorkerRoute } from "../../scripts/issue-capabilities.mjs";
+import {
+  discoverCapabilities,
+  loadOrRefreshCapabilities,
+  refreshWorkerRoutes,
+  verifyWorkerRoute,
+} from "../../scripts/issue-capabilities.mjs";
 
 import { launchWithAdapter } from "../../scripts/issue-runtime-adapters/index.mjs";
 import { selectWorkerRoutes } from "../../scripts/issue-plan.mjs";
-import { runHeadlessExecProbe, PROBE_SCHEMA_VERSION, getRepositoryCommit } from "../../scripts/issue-runtime-adapters/shared.mjs";
+import {
+  runHeadlessExecProbe,
+  PROBE_SCHEMA_VERSION,
+  getRepositoryCommit,
+} from "../../scripts/issue-runtime-adapters/shared.mjs";
 
 async function fakeRuntime(t, agent) {
-  const directory = await mkdtemp(path.join(tmpdir(), "example-model-verification-"));
+  const directory = await mkdtemp(
+    path.join(tmpdir(), "example-model-verification-"),
+  );
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const name = { Codex: "codex", Claude: "claude", Grok: "grok", Gemini: "gemini" }[agent];
+  const name = {
+    Codex: "codex",
+    Claude: "claude",
+    Grok: "grok",
+    Gemini: "gemini",
+  }[agent];
   const cliPath = path.join(directory, name);
-  const models = ["working", "unavailable", "quota", "unauthorized", "substituted", "working-last"];
-  await writeFile(cliPath, `#!${process.execPath}
+  const models = [
+    "working",
+    "unavailable",
+    "quota",
+    "unauthorized",
+    "substituted",
+    "working-last",
+  ];
+  await writeFile(
+    cliPath,
+    `#!${process.execPath}
     const fs = require("node:fs");
     const args = process.argv.slice(2);
     const root = require("node:path").dirname(process.argv[1]);
@@ -25,8 +57,18 @@ async function fakeRuntime(t, agent) {
     if (args.includes("status")) {
       console.log(JSON.stringify({loggedIn:true})); process.exit(0);
     }
+    if (args.includes("--input-format")) {
+      // Claude control protocol: answer \`initialize\` with the catalog plus fields that must be dropped.
+      require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+        const request = JSON.parse(line);
+        console.log(JSON.stringify({ type: "control_response", response: { subtype: "success",
+          request_id: request.request_id, response: { account: { email: "private@example.invalid" },
+            models: [{ value: "default", displayName: "Default" }, ...models.map(value => ({ value, displayName: value }))] } } }));
+      });
+      return;
+    }
     if (args.includes("models")) {
-      console.log(JSON.stringify(${agent === "Codex" ? '{models:models.map(slug=>({slug}))}' : 'models'}));
+      console.log(JSON.stringify(${agent === "Codex" ? "{models:models.map(slug=>({slug}))}" : "models"}));
       process.exit(0);
     }
     if (args.includes("--version")) { console.log("test-cli-1"); process.exit(0); }
@@ -41,7 +83,8 @@ async function fakeRuntime(t, agent) {
     const marker = prompt.match(/nothing else:\\s*(\\S+)/)[1];
     fs.writeFileSync(target, marker);
     console.error("model: " + (model === "substituted" ? "unexpected-model" : model));
-  `);
+  `,
+  );
   await chmod(cliPath, 0o755);
   return {
     directory,
@@ -52,35 +95,103 @@ async function fakeRuntime(t, agent) {
       homeDir: directory,
       timeoutMs: 15_000,
       headlessProbeTimeoutMs: 15_000,
-      ...(agent === "Claude" ? { adapters: { Claude: { candidateModels: models } } } : {}),
     },
   };
 }
 
-for (const agent of ["Codex", "Claude", "Grok", "Gemini"]) {
+for (const agent of ["Codex", "Grok", "Gemini"]) {
   test(`${agent} only exposes individually successful exact models`, async (t) => {
     const { options } = await fakeRuntime(t, agent);
     const result = await discoverCapabilities(options);
-    assert.deepEqual(result.capabilities.filter(r => r.role === "worker").map(r => r.model),
-      ["working", "working-last"]);
-    const failures = result.diagnostics.filter(d => d.status === "failed");
-    assert.deepEqual(failures.map(d => d.model), ["unavailable", "quota", "unauthorized", "substituted"]);
+    assert.deepEqual(
+      result.capabilities
+        .filter((r) => r.role === "worker")
+        .map((r) => r.model),
+      ["working", "working-last"],
+    );
+    const failures = result.diagnostics.filter((d) => d.status === "failed");
+    assert.deepEqual(
+      failures.map((d) => d.model),
+      ["unavailable", "quota", "unauthorized", "substituted"],
+    );
     assert.equal(failures.at(-1).reason, "model-mismatch");
-    assert.equal(JSON.stringify(result).includes("fake-private-diagnostic"), false);
+    assert.equal(
+      JSON.stringify(result).includes("fake-private-diagnostic"),
+      false,
+    );
   });
 }
+
+test("Claude lists models over the control protocol and records the canonical model each alias reports", async (t) => {
+  const { options } = await fakeRuntime(t, "Claude");
+  const result = await discoverCapabilities(options);
+  // The value passed to --model stays requestedModel; the probe's report is the canonical model.
+  assert.deepEqual(
+    result.capabilities
+      .filter((r) => r.role === "worker")
+      .map((r) => [r.model, r.requestedModel]),
+    [
+      ["working", "working"],
+      ["unexpected-model", "substituted"],
+      ["working-last", "working-last"],
+    ],
+  );
+  assert.match(
+    result.capabilities.find((r) => r.model === "unexpected-model").selector,
+    /--model substituted( |$)/,
+  );
+  const failures = result.diagnostics.filter((d) => d.status === "failed");
+  assert.deepEqual(
+    failures.map((d) => [d.model, d.reason]),
+    [
+      ["unavailable", "headless-exec-failed"],
+      ["quota", "headless-exec-failed"],
+      ["unauthorized", "headless-exec-failed"],
+    ],
+  );
+  // `default` names no model; account data from the response never leaves the listing.
+  assert.equal(
+    result.diagnostics.some((d) => d.model === "default"),
+    false,
+  );
+  assert.equal(
+    JSON.stringify(result).includes("private@example.invalid"),
+    false,
+  );
+  assert.equal(
+    JSON.stringify(result).includes("fake-private-diagnostic"),
+    false,
+  );
+});
 
 test("fresh triage batches ignore caches and retain parent/model exclusions", async (t) => {
   const { directory, options } = await fakeRuntime(t, "Codex");
   const cachePath = path.join(directory, "cache.json");
   await writeFile(cachePath, "untouched cache");
-  const first = await refreshWorkerRoutes({ ...options, cachePath, outputPath: cachePath });
-  assert.deepEqual(first.workerRoutes.map(r => r.model), ["working", "working-last"]);
-  await writeFile(path.join(directory, "disabled.json"), JSON.stringify(["working"]));
-  const second = await refreshWorkerRoutes({ ...options, cachePath, unavailableModels: ["working-last"] });
+  const first = await refreshWorkerRoutes({
+    ...options,
+    cachePath,
+    outputPath: cachePath,
+  });
+  assert.deepEqual(
+    first.workerRoutes.map((r) => r.model),
+    ["working", "working-last"],
+  );
+  await writeFile(
+    path.join(directory, "disabled.json"),
+    JSON.stringify(["working"]),
+  );
+  const second = await refreshWorkerRoutes({
+    ...options,
+    cachePath,
+    unavailableModels: ["working-last"],
+  });
   assert.deepEqual(second.workerRoutes, []);
   assert.equal(await readFile(cachePath, "utf8"), "untouched cache");
-  const parent = await refreshWorkerRoutes({ ...options, parentAgent: "Codex" });
+  const parent = await refreshWorkerRoutes({
+    ...options,
+    parentAgent: "Codex",
+  });
   assert.deepEqual(parent.workerRoutes, []);
 });
 
@@ -89,12 +200,40 @@ test("dispatch preflight rechecks entitlement, catalog membership and exact sele
   const { workerRoutes } = await refreshWorkerRoutes(options);
   const route = workerRoutes[0];
   assert.equal((await verifyWorkerRoute(route, options)).ok, true);
-  assert.equal((await verifyWorkerRoute(route, { ...options, unavailableAgents: ["Codex"] })).ok, false);
-  assert.equal((await verifyWorkerRoute({ ...route, selector: "/never/execute-this" }, options)).ok, false);
-  await writeFile(path.join(directory, "disabled.json"), JSON.stringify([route.model]));
-  assert.deepEqual(await verifyWorkerRoute(route, options), { ok: false, reason: "headless-exec-failed" });
-  await writeFile(path.join(directory, "catalog.json"), JSON.stringify(["working-last"]));
-  assert.deepEqual(await verifyWorkerRoute(route, options), { ok: false, reason: "model-not-selectable" });
+  assert.equal(
+    (
+      await verifyWorkerRoute(route, {
+        ...options,
+        unavailableAgents: ["Codex"],
+      })
+    ).ok,
+    false,
+  );
+  assert.equal(
+    (
+      await verifyWorkerRoute(
+        { ...route, selector: "/never/execute-this" },
+        options,
+      )
+    ).ok,
+    false,
+  );
+  await writeFile(
+    path.join(directory, "disabled.json"),
+    JSON.stringify([route.model]),
+  );
+  assert.deepEqual(await verifyWorkerRoute(route, options), {
+    ok: false,
+    reason: "headless-exec-failed",
+  });
+  await writeFile(
+    path.join(directory, "catalog.json"),
+    JSON.stringify(["working-last"]),
+  );
+  assert.deepEqual(await verifyWorkerRoute(route, options), {
+    ok: false,
+    reason: "model-not-selectable",
+  });
 });
 
 test("a timeout or thrown probe failure does not hide later usable models or leak errors", async (t) => {
@@ -102,14 +241,22 @@ test("a timeout or thrown probe failure does not hide later usable models or lea
   const result = await discoverCapabilities({
     ...options,
     headlessExecProbe: async ({ expectedModel }) => {
-      if (expectedModel === "working") return { ok: false, reason: "verification-timeout" };
-      if (expectedModel !== "working-last") throw new Error("fake-private-probe-error");
+      if (expectedModel === "working")
+        return { ok: false, reason: "verification-timeout" };
+      if (expectedModel !== "working-last")
+        throw new Error("fake-private-probe-error");
       return { ok: true };
     },
   });
-  assert.deepEqual(result.capabilities.filter(r => r.role === "worker").map(r => r.model), ["working-last"]);
+  assert.deepEqual(
+    result.capabilities.filter((r) => r.role === "worker").map((r) => r.model),
+    ["working-last"],
+  );
   assert.equal(result.diagnostics[0].reason, "verification-timeout");
-  assert.equal(JSON.stringify(result).includes("fake-private-probe-error"), false);
+  assert.equal(
+    JSON.stringify(result).includes("fake-private-probe-error"),
+    false,
+  );
 });
 
 for (const [outcome, reason] of /** @type {[object, string][]} */ ([
@@ -119,11 +266,14 @@ for (const [outcome, reason] of /** @type {[object, string][]} */ ([
 ])) {
   test(`a written artifact cannot hide ${reason}`, async () => {
     const result = await runHeadlessExecProbe({
-      cliPath: "/fake-cli", expectedModel: "requested-model",
+      cliPath: "/fake-cli",
+      expectedModel: "requested-model",
       run: async (_command, args) => {
         const prompt = args.at(-1);
-        await writeFile(prompt.match(/exact path:\s*(\S+)/)[1],
-          prompt.match(/nothing else:\s*(\S+)/)[1]);
+        await writeFile(
+          prompt.match(/exact path:\s*(\S+)/)[1],
+          prompt.match(/nothing else:\s*(\S+)/)[1],
+        );
         return { code: 0, timedOut: false, stdout: "", stderr: "", ...outcome };
       },
     });
@@ -135,14 +285,24 @@ test("ordinary cache reuses partial success while explicit refresh rechecks unav
   const { directory, options } = await fakeRuntime(t, "Codex");
   const cachePath = path.join(directory, "capabilities.json");
   await discoverCapabilities({ ...options, outputPath: cachePath });
-  await writeFile(path.join(directory, "disabled.json"), JSON.stringify(["working"]));
+  await writeFile(
+    path.join(directory, "disabled.json"),
+    JSON.stringify(["working"]),
+  );
   const cached = await loadOrRefreshCapabilities({ ...options, cachePath });
   assert.equal(cached.reused, true);
-  assert.ok(cached.capabilities.some(r => r.model === "working"));
-  const refreshed = await loadOrRefreshCapabilities({ ...options, cachePath, refresh: true });
+  assert.ok(cached.capabilities.some((r) => r.model === "working"));
+  const refreshed = await loadOrRefreshCapabilities({
+    ...options,
+    cachePath,
+    refresh: true,
+  });
   assert.equal(refreshed.reused, false);
-  assert.equal(refreshed.capabilities.some(r => r.model === "working"), false);
-  assert.ok(refreshed.capabilities.some(r => r.model === "working-last"));
+  assert.equal(
+    refreshed.capabilities.some((r) => r.model === "working"),
+    false,
+  );
+  assert.ok(refreshed.capabilities.some((r) => r.model === "working-last"));
 });
 
 test("an agent with no successful model is retried on the next cache read", async (t) => {
@@ -154,7 +314,7 @@ test("an agent with no successful model is retried on the next cache read", asyn
   await rm(disabled);
   const recovered = await loadOrRefreshCapabilities({ ...options, cachePath });
   assert.equal(recovered.reused, false);
-  assert.ok(recovered.capabilities.some(r => r.model === "working"));
+  assert.ok(recovered.capabilities.some((r) => r.model === "working"));
 });
 
 test("Antigravity is excluded from discovery, including explicit CLI overrides", async (t) => {
@@ -163,7 +323,14 @@ test("Antigravity is excluded from discovery, including explicit CLI overrides",
   await rename(path.join(directory, "gemini"), agy);
   let invoked = 0;
   for (const adapters of [undefined, { Gemini: { cliPath: agy } }]) {
-    const result = await discoverCapabilities({ ...options, adapters, runProcess: async () => { invoked++; throw Error("unexpected retired runtime"); } });
+    const result = await discoverCapabilities({
+      ...options,
+      adapters,
+      runProcess: async () => {
+        invoked++;
+        throw Error("unexpected retired runtime");
+      },
+    });
     assert.deepEqual(result.capabilities, []);
   }
   assert.equal(invoked, 0);
@@ -171,11 +338,30 @@ test("Antigravity is excluded from discovery, including explicit CLI overrides",
 
 test("retired routes cannot return through explicit worker pools or dispatch", async () => {
   let spawned = 0;
-  const record = { agent: "Gemini", model: "fixture", selector: '"/retired path/agy" --model fixture --print', role: "worker", selectable: true, verifiable: true, timeoutMs: 1000 };
-  for (const retired of [record, { ...record, agent: "Antigravity" }, { ...record, agent: "agy" }]) {
+  const record = {
+    agent: "Gemini",
+    model: "fixture",
+    selector: '"/retired path/agy" --model fixture --print',
+    role: "worker",
+    selectable: true,
+    verifiable: true,
+    timeoutMs: 1000,
+  };
+  for (const retired of [
+    record,
+    { ...record, agent: "Antigravity" },
+    { ...record, agent: "agy" },
+  ]) {
     assert.deepEqual(selectWorkerRoutes([retired]), []);
     assert.equal((await verifyWorkerRoute(retired)).ok, false);
-    await assert.rejects(launchWithAdapter(retired.agent, retired, { spawnWorker: () => { spawned++; } }), /runtime-retired/);
+    await assert.rejects(
+      launchWithAdapter(retired.agent, retired, {
+        spawnWorker: () => {
+          spawned++;
+        },
+      }),
+      /runtime-retired/,
+    );
   }
   assert.equal(spawned, 0);
   const native = { ...record, selector: "/native/gemini --model fixture" };
@@ -187,13 +373,36 @@ test("fresh-looking Antigravity cache is discarded before CLI version checks", a
   const agy = path.join(directory, "agy");
   await rename(path.join(directory, "gemini"), agy);
   const cachePath = path.join(directory, "capabilities.json");
-  await writeFile(cachePath, JSON.stringify({
-    probeSchemaVersion: PROBE_SCHEMA_VERSION, runtimeFingerprint: loadRuntimeRegistry().fingerprint, repositoryCommit: await getRepositoryCommit(process.cwd()),
-    capabilities: [{ agent: "Gemini", model: "working", role: "worker", selector: `${agy} --model working --print`, selectable: true, verifiable: true, timeoutMs: 1000 }],
-    diagnostics: [], cli: { Gemini: { path: agy, version: "test-cli-1" } },
-  }));
+  await writeFile(
+    cachePath,
+    JSON.stringify({
+      probeSchemaVersion: PROBE_SCHEMA_VERSION,
+      runtimeFingerprint: loadRuntimeRegistry().fingerprint,
+      repositoryCommit: await getRepositoryCommit(process.cwd()),
+      capabilities: [
+        {
+          agent: "Gemini",
+          model: "working",
+          role: "worker",
+          selector: `${agy} --model working --print`,
+          selectable: true,
+          verifiable: true,
+          timeoutMs: 1000,
+        },
+      ],
+      diagnostics: [],
+      cli: { Gemini: { path: agy, version: "test-cli-1" } },
+    }),
+  );
   let invoked = 0;
-  const result = await loadOrRefreshCapabilities({ ...options, cachePath, runProcess: async () => { invoked++; throw Error("retired runtime invoked"); } });
+  const result = await loadOrRefreshCapabilities({
+    ...options,
+    cachePath,
+    runProcess: async () => {
+      invoked++;
+      throw Error("retired runtime invoked");
+    },
+  });
   assert.deepEqual(result.capabilities, []);
   assert.equal(result.reused, false);
   assert.equal(invoked, 0);

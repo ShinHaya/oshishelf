@@ -11,21 +11,41 @@ import {
 const CHILD = fileURLToPath(new URL("./issue-triage.mjs", import.meta.url));
 const safeEnv = (env) =>
   Object.fromEntries(
-    Object.entries(env).filter(([key]) => !["NODE_OPTIONS", "NODE_DEBUG", "GH_DEBUG"].includes(key)),
+    Object.entries(env).filter(
+      ([key]) => !["NODE_OPTIONS", "NODE_DEBUG", "GH_DEBUG"].includes(key),
+    ),
   );
 
 /**
  * @param {unknown} rawInput
  * @param {unknown} rawConfig
- * @param {{ env?: NodeJS.ProcessEnv, signal?: AbortSignal, timeoutMs?: number }} [options]
+ * @param {{ env?: NodeJS.ProcessEnv, signal?: AbortSignal, timeoutMs?: number, fetchTimeoutMs?: number }} [options]
  */
-export function runTriageChild(rawInput, rawConfig, { env = process.env, signal, timeoutMs = 10_000 } = {}) {
+export function runTriageChild(
+  rawInput,
+  rawConfig,
+  {
+    env = process.env,
+    signal,
+    timeoutMs = 10_000,
+    fetchTimeoutMs = 4_000,
+  } = {},
+) {
   const input = normalizeTriageInput(rawInput);
   const config = normalizeTriageConfig(rawConfig);
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000)
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000)
     throw new Error("triage-invalid-timeout");
+  if (
+    !Number.isSafeInteger(fetchTimeoutMs) ||
+    fetchTimeoutMs < 1 ||
+    fetchTimeoutMs > 120_000
+  )
+    throw new Error("triage-invalid-fetch-timeout");
   const context = triageContext(input);
-  const fallback = (reason) => ({ result: fallbackResult(context, reason), usage: "unavailable" });
+  const fallback = (reason) => ({
+    result: fallbackResult(context, reason),
+    usage: "unavailable",
+  });
   if (signal?.aborted) return Promise.resolve(fallback("cancelled"));
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CHILD, String(input.issue)], {
@@ -65,7 +85,8 @@ export function runTriageChild(rawInput, rawConfig, { env = process.env, signal,
     child.stdin.on("error", () => terminate("invalid-response"));
     child.on("error", () => finish(fallback("provider-error")));
     child.on("close", (code) => {
-      if (reason || code !== 0) return finish(fallback(reason ?? "invalid-response"));
+      if (reason || code !== 0)
+        return finish(fallback(reason ?? "invalid-response"));
       try {
         const raw = JSON.parse(Buffer.concat(chunks).toString("utf8"));
         const result = parseTriageResult(raw.result, input, context);
@@ -74,7 +95,9 @@ export function runTriageChild(rawInput, rawConfig, { env = process.env, signal,
         finish(fallback("invalid-response"));
       }
     });
-    child.stdin.end(JSON.stringify({ input, config }));
+    child.stdin.end(
+      JSON.stringify({ input, config, timeoutMs, fetchTimeoutMs }),
+    );
   });
 }
 function cleanUsage(raw) {
@@ -86,7 +109,8 @@ function cleanUsage(raw) {
     : "unavailable";
 }
 export function createTriageState(runId) {
-  if (typeof runId !== "string" || !/^[\w-]{1,100}$/.test(runId)) throw new Error("triage-invalid-run");
+  if (typeof runId !== "string" || !/^[\w-]{1,100}$/.test(runId))
+    throw new Error("triage-invalid-run");
   return { runId, reserved: 0, providerUnavailable: false };
 }
 function cleanState(raw, runId) {
@@ -98,7 +122,11 @@ function cleanState(raw, runId) {
     typeof raw.providerUnavailable !== "boolean"
   )
     throw new Error("triage-invalid-state");
-  return { runId, reserved: raw.reserved, providerUnavailable: raw.providerUnavailable };
+  return {
+    runId,
+    reserved: raw.reserved,
+    providerUnavailable: raw.providerUnavailable,
+  };
 }
 
 /**
@@ -106,10 +134,16 @@ function cleanState(raw, runId) {
  * MUST durably save the supplied snapshot before resolving; the graph
  * checkpoint provides it. Reserved slots are never refunded on interruption.
  */
-export function createTriageRunner({ runId, state: initialState, persistState, execute = runTriageChild }) {
+export function createTriageRunner({
+  runId,
+  state: initialState,
+  persistState,
+  execute = runTriageChild,
+}) {
   createTriageState(runId);
   let state = cleanState(initialState, runId);
-  if (typeof persistState !== "function") throw new Error("triage-persistence-required");
+  if (typeof persistState !== "function")
+    throw new Error("triage-persistence-required");
   let queue = Promise.resolve();
   return {
     snapshot: () => ({ ...state }),
@@ -118,12 +152,16 @@ export function createTriageRunner({ runId, state: initialState, persistState, e
       const config = normalizeTriageConfig(rawConfig);
       const operation = queue.then(async () => {
         const context = triageContext(input);
-        const fallback = (reason) => ({ result: fallbackResult(context, reason), usage: "unavailable" });
+        const fallback = (reason) => ({
+          result: fallbackResult(context, reason),
+          usage: "unavailable",
+        });
         if (config.mode === "off") return fallback("disabled");
         if (config.mode === "assisted") return fallback("input-not-approved");
         if (options.signal?.aborted) return fallback("cancelled");
         if (state.providerUnavailable) return fallback("provider-unavailable");
-        if (state.reserved >= config.maxRequests) return fallback("budget-exhausted");
+        if (state.reserved >= config.maxRequests)
+          return fallback("budget-exhausted");
         state = { ...state, reserved: state.reserved + 1 };
         try {
           await persistState({ ...state });
@@ -134,7 +172,10 @@ export function createTriageRunner({ runId, state: initialState, persistState, e
         let response;
         try {
           const raw = await execute(input, config, options);
-          response = { result: parseTriageResult(raw.result, input, context), usage: cleanUsage(raw.usage) };
+          response = {
+            result: parseTriageResult(raw.result, input, context),
+            usage: cleanUsage(raw.usage),
+          };
         } catch {
           response = fallback("invalid-response");
         }

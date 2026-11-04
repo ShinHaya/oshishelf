@@ -5,7 +5,9 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
-  TRIAGE_POLICY, TRIAGE_RUBRIC_VERSION, TRIAGE_REVIEW_THRESHOLDS,
+  TRIAGE_POLICY,
+  TRIAGE_RUBRIC_VERSION,
+  TRIAGE_REVIEW_THRESHOLDS,
   normalizeTriageInput,
   normalizeTriageConfig,
   triageContext,
@@ -48,9 +50,11 @@ export function buildTriageRequest(input, context, disclosure) {
       instructions: `${boundary} Which risk category describes the MOST consequential boundary changed by this work? Apply critical first, then high, then medium, then low. Safety improvements still touch their safety boundary. A small change to a guard is not low risk. Do not infer absent scope from a model name or a promise that tests pass.`,
       criteria: {
         low: "ONLY local reversible presentation, documentation or isolated tests; no change to personal-data handling, network requests, encryption, credentials, authentication, consent or destructive operations, and no shared behavioral contract change.",
-        medium: "Changes shared software contracts, orchestration, build/release behavior, persistence schemas or multiple non-security responsibilities, WITHOUT changing any high/critical safety boundary. A reversible cross-module refactor is medium even if behavior is intended unchanged.",
+        medium:
+          "Changes shared software contracts, orchestration, build/release behavior, persistence schemas or multiple non-security responsibilities, WITHOUT changing any high/critical safety boundary. A reversible cross-module refactor is medium even if behavior is intended unchanged.",
         high: "Changes at least one safety boundary: personal-data collection, disclosure, plaintext export or logging; any new egress path; encryption or key handling; authentication, MFA or human handoff; user consent, payment, terms or eligibility guards; irreversible update, withdrawal or deletion. Includes enforcing these guards and small edits that remove them. Use critical instead only when its compound, hard-to-recover impact is present. Do not use high for automatic legal or identity attestations; those are critical.",
-        critical: "Couples multiple safety boundaries with hard-to-recover effects: remote transfer together with destructive migration or key/account replacement; automatic consequential actions across multiple accounts; or automatic legal/identity attestation that commits a person without their judgment. An isolated safety-boundary fix is high, not critical.",
+        critical:
+          "Couples multiple safety boundaries with hard-to-recover effects: remote transfer together with destructive migration or key/account replacement; automatic consequential actions across multiple accounts; or automatic legal/identity attestation that commits a person without their judgment. An isolated safety-boundary fix is high, not critical.",
       },
     },
     size: {
@@ -76,7 +80,10 @@ export function buildTriageRequest(input, context, disclosure) {
             id,
             {
               ...r,
-              evidence: context.evidence.find((e) => e.agent === r.agent && e.model === r.model) ?? null,
+              evidence:
+                context.evidence.find(
+                  (e) => e.agent === r.agent && e.model === r.model,
+                ) ?? null,
             },
           ]),
         ),
@@ -84,27 +91,61 @@ export function buildTriageRequest(input, context, disclosure) {
       },
     };
   }
-  return { model: input.model, state: { title: disclosure.title, body: disclosure.body }, questions };
+  return {
+    model: input.model,
+    state: { title: disclosure.title, body: disclosure.body },
+    questions,
+  };
 }
 
 /** Bind evaluations to the actual question text and thresholds, not just a supplied version label. */
 export function triageClassifierFingerprint() {
-  const { questions } = buildTriageRequest({}, { routeMap: { candidate: { agent: "fixture", model: "fixture" } }, evidence: [] }, {});
-  return createHash("sha256").update(JSON.stringify({
-    policy: TRIAGE_POLICY, rubric: TRIAGE_RUBRIC_VERSION,
-    thresholds: TRIAGE_REVIEW_THRESHOLDS, questions,
-  })).digest("hex");
+  const { questions } = buildTriageRequest(
+    {},
+    {
+      routeMap: { candidate: { agent: "fixture", model: "fixture" } },
+      evidence: [],
+    },
+    {},
+  );
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        policy: TRIAGE_POLICY,
+        rubric: TRIAGE_RUBRIC_VERSION,
+        thresholds: TRIAGE_REVIEW_THRESHOLDS,
+        questions,
+      }),
+    )
+    .digest("hex");
 }
 
-async function fetchIssueForTriage(issue, { signal, env }) {
+async function fetchIssueForTriage(issue, { signal, env, timeoutMs }) {
   const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){isPrivate issue(number:$number){title body updatedAt}}}`;
   const githubEnv = { ...env };
   delete githubEnv.TYPESAFE_API_KEY;
   const { owner, name } = await resolveRepository({ env: githubEnv });
   const { stdout } = await execFileAsync(
     "gh",
-    ["api", "graphql", "-f", `query=${query}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${issue}`],
-    { encoding: "utf8", maxBuffer: RESPONSE_LIMIT, timeout: 4_000, signal, env: githubEnv },
+    [
+      "api",
+      "graphql",
+      "-f",
+      `query=${query}`,
+      "-f",
+      `owner=${owner}`,
+      "-f",
+      `name=${name}`,
+      "-F",
+      `number=${issue}`,
+    ],
+    {
+      encoding: "utf8",
+      maxBuffer: RESPONSE_LIMIT,
+      timeout: timeoutMs,
+      signal,
+      env: githubEnv,
+    },
   );
   const parsed = JSON.parse(stdout);
   if (parsed.errors) throw new Error("fetch-failed");
@@ -136,7 +177,7 @@ async function boundedResponse(response) {
  * Runs only in the isolated child in production; injected boundaries serve offline tests.
  * @param {unknown} rawInput
  * @param {unknown} rawConfig
- * @param {{ env?: NodeJS.ProcessEnv, fetchImpl?: typeof fetch, fetchIssue?: typeof fetchIssueForTriage, signal?: AbortSignal, now?: number, requestTimeoutMs?: number }} [options]
+ * @param {{ env?: NodeJS.ProcessEnv, fetchImpl?: typeof fetch, fetchIssue?: typeof fetchIssueForTriage, signal?: AbortSignal, now?: number, requestTimeoutMs?: number, fetchTimeoutMs?: number }} [options]
  */
 export async function evaluateTriage(
   rawInput,
@@ -148,12 +189,16 @@ export async function evaluateTriage(
     signal,
     now = Date.now(),
     requestTimeoutMs = 5_000,
+    fetchTimeoutMs = 4_000,
   } = {},
 ) {
   const input = normalizeTriageInput(rawInput);
   const config = normalizeTriageConfig(rawConfig);
   const context = triageContext(input, now);
-  const fallback = (reason) => ({ result: fallbackResult(context, reason), usage: "unavailable" });
+  const fallback = (reason) => ({
+    result: fallbackResult(context, reason),
+    usage: "unavailable",
+  });
   if (config.mode === "off") return fallback("disabled");
   // Assisted requires the graph's adoption and evaluation gates.
   if (config.mode === "assisted") return fallback("input-not-approved");
@@ -165,22 +210,34 @@ export async function evaluateTriage(
   {
     let disclosure;
     try {
-      disclosure = await fetchIssue(input.issue, { signal, env });
+      disclosure = await fetchIssue(input.issue, {
+        signal,
+        env,
+        timeoutMs: fetchTimeoutMs,
+      });
     } catch {
       return fallback(signal?.aborted ? "cancelled" : "fetch-failed");
     }
     if (signal?.aborted) return fallback("cancelled");
-    if (typeof disclosure.isPrivate !== "boolean" ||
-        (disclosure.isPrivate && config.allowPrivateIssues !== true))
+    if (
+      typeof disclosure.isPrivate !== "boolean" ||
+      (disclosure.isPrivate && config.allowPrivateIssues !== true)
+    )
       return fallback("input-not-approved");
-    if (disclosure.updatedAt !== input.issueUpdatedAt) return fallback("stale-input");
-    if (typeof disclosure.title !== "string" || typeof disclosure.body !== "string")
+    if (disclosure.updatedAt !== input.issueUpdatedAt)
+      return fallback("stale-input");
+    if (
+      typeof disclosure.title !== "string" ||
+      typeof disclosure.body !== "string"
+    )
       return fallback("fetch-failed");
     if (!disclosure.body.trim()) return fallback("insufficient-context");
-    if (containsSensitiveInput(`${disclosure.title}\n${disclosure.body}`)) return fallback("sensitive-input");
+    if (containsSensitiveInput(`${disclosure.title}\n${disclosure.body}`))
+      return fallback("sensitive-input");
     body = JSON.stringify(buildTriageRequest(input, context, disclosure));
   }
-  if (Buffer.byteLength(body) > REQUEST_LIMIT) return fallback("input-too-large");
+  if (Buffer.byteLength(body) > REQUEST_LIMIT)
+    return fallback("input-too-large");
   const deadline = AbortSignal.timeout(requestTimeoutMs);
   const combined = signal ? AbortSignal.any([signal, deadline]) : deadline;
   try {
@@ -188,7 +245,10 @@ export async function evaluateTriage(
       method: "POST",
       redirect: "error",
       signal: combined,
-      headers: { Authorization: `Bearer ${env.TYPESAFE_API_KEY}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${env.TYPESAFE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
       body,
     });
     if (!response.ok) {
@@ -201,7 +261,13 @@ export async function evaluateTriage(
     try {
       raw = await boundedResponse(response);
     } catch {
-      return fallback(signal?.aborted ? "cancelled" : deadline.aborted ? "timeout" : "invalid-response");
+      return fallback(
+        signal?.aborted
+          ? "cancelled"
+          : deadline.aborted
+            ? "timeout"
+            : "invalid-response",
+      );
     }
     if (signal?.aborted) return fallback("cancelled");
     if (deadline.aborted) return fallback("timeout");
@@ -216,11 +282,20 @@ export async function evaluateTriage(
       raw.usage.input_tokens >= 0 &&
       Number.isSafeInteger(raw.usage?.output_tokens) &&
       raw.usage.output_tokens >= 0
-        ? { inputTokens: raw.usage.input_tokens, outputTokens: raw.usage.output_tokens }
+        ? {
+            inputTokens: raw.usage.input_tokens,
+            outputTokens: raw.usage.output_tokens,
+          }
         : "unavailable";
     return { result, usage };
   } catch {
-    return fallback(signal?.aborted ? "cancelled" : deadline.aborted ? "timeout" : "provider-error");
+    return fallback(
+      signal?.aborted
+        ? "cancelled"
+        : deadline.aborted
+          ? "timeout"
+          : "provider-error",
+    );
   }
 }
 
@@ -233,13 +308,31 @@ async function main() {
     if (bytes > 128 * 1024) throw new Error("invalid-input");
     chunks.push(chunk);
   }
-  const { input, config } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  if (String(input?.issue) !== process.argv[2]) throw new Error("invalid-input");
-  const signal = AbortSignal.timeout(10_000);
-  const response = await evaluateTriage(input, config, { signal });
+  const {
+    input,
+    config,
+    timeoutMs = 10_000,
+    fetchTimeoutMs = 4_000,
+  } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  if (String(input?.issue) !== process.argv[2])
+    throw new Error("invalid-input");
+  if (
+    ![timeoutMs, fetchTimeoutMs].every(
+      (value) => Number.isSafeInteger(value) && value >= 1 && value <= 120_000,
+    )
+  )
+    throw new Error("invalid-input");
+  const signal = AbortSignal.timeout(timeoutMs);
+  const response = await evaluateTriage(input, config, {
+    signal,
+    fetchTimeoutMs,
+  });
   process.stdout.write(`${JSON.stringify(response)}\n`);
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   main().catch(() => {
     process.stdout.write('{"status":"error","reason":"invalid-input"}\n');
     process.exitCode = 1;

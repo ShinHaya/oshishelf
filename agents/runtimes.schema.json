@@ -56,16 +56,10 @@
           }
         },
         "parser": {
-          "enum": [
-            "login-status",
-            "logged-in-json"
-          ]
+          "enum": ["login-status", "logged-in-json"]
         }
       },
-      "required": [
-        "args",
-        "parser"
-      ],
+      "required": ["args", "parser"],
       "additionalProperties": false
     },
     "models": {
@@ -82,18 +76,45 @@
         "parser": {
           "enum": [
             "codex-models",
-            "claude-local",
+            "claude-initialize",
             "bullet-models",
             "model-lines",
             "provider-models",
             "json-models"
           ]
+        },
+        "control": {
+          "type": "object",
+          "properties": {
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "minItems": 1
+            },
+            "request": {
+              "type": "object",
+              "properties": {
+                "method": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z_]*$"
+                }
+              },
+              "required": ["method"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["args", "request"],
+          "additionalProperties": false
+        },
+        "resolveReportedModel": {
+          "type": "boolean"
         }
       },
-      "required": [
-        "args",
-        "parser"
-      ],
+      "required": ["args", "parser"],
       "additionalProperties": false
     },
     "selectorArgs": {
@@ -133,20 +154,14 @@
           "uniqueItems": true
         }
       },
-      "required": [
-        "discoveryDirs"
-      ],
+      "required": ["discoveryDirs"],
       "additionalProperties": false
     },
     "subagents": {
       "type": "object",
       "properties": {
         "format": {
-          "enum": [
-            "claude-markdown",
-            "opencode-markdown",
-            "agent-json"
-          ]
+          "enum": ["claude-markdown", "opencode-markdown", "agent-json"]
         },
         "directory": {
           "type": "string",
@@ -167,18 +182,11 @@
               "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
             }
           },
-          "required": [
-            "reasoning",
-            "fast"
-          ],
+          "required": ["reasoning", "fast"],
           "additionalProperties": false
         }
       },
-      "required": [
-        "format",
-        "directory",
-        "models"
-      ],
+      "required": ["format", "directory", "models"],
       "additionalProperties": false
     },
     "hooks": {
@@ -200,11 +208,7 @@
             "type": "object"
           }
         },
-        "required": [
-          "file",
-          "event",
-          "entry"
-        ],
+        "required": ["file", "event", "entry"],
         "additionalProperties": false
       }
     },
@@ -212,11 +216,7 @@
       "type": "object",
       "properties": {
         "transport": {
-          "enum": [
-            "jsonrpc-stdio",
-            "exec-json",
-            "control-stdio"
-          ]
+          "enum": ["jsonrpc-stdio", "exec-json", "control-stdio"]
         },
         "command": {
           "type": "array",
@@ -239,9 +239,7 @@
               "type": "object"
             }
           },
-          "required": [
-            "method"
-          ],
+          "required": ["method"],
           "additionalProperties": false
         },
         "initialized": {
@@ -261,9 +259,7 @@
               "type": "object"
             }
           },
-          "required": [
-            "method"
-          ],
+          "required": ["method"],
           "additionalProperties": false
         },
         "windows": {
@@ -277,10 +273,7 @@
           "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
         },
         "windowDurationMins": {
-          "type": [
-            "string",
-            "integer"
-          ]
+          "type": ["string", "integer"]
         },
         "blocked": {
           "type": "array",
@@ -291,25 +284,17 @@
           }
         },
         "windowSelection": {
-          "enum": [
-            "children",
-            "self"
-          ]
+          "enum": ["children", "self"]
         },
         "percentFormat": {
-          "enum": [
-            "integer",
-            "number"
-          ]
+          "enum": ["integer", "number"]
         },
         "resetsAt": {
           "type": "string",
           "minLength": 1
         },
         "resetFormat": {
-          "enum": [
-            "iso"
-          ]
+          "enum": ["iso"]
         }
       },
       "required": [
@@ -322,9 +307,181 @@
       "additionalProperties": false
     },
     "usageUnavailable": {
-      "enum": [
-        "five-hour-query-unavailable"
-      ]
+      "enum": ["five-hour-query-unavailable"]
+    },
+    "permissions": {
+      "type": "object",
+      "properties": {
+        "flags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 2,
+            "pattern": "^-[^\\s\\u0000-\\u001f\\u007f=]+$"
+          },
+          "uniqueItems": true
+        },
+        "allowArgs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "minItems": 1
+        },
+        "profiles": {
+          "type": "object",
+          "properties": {
+            "workspace-write": {
+              "type": "object",
+              "properties": {
+                "args": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  }
+                },
+                "allow": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "uniqueItems": true
+                },
+                "enforcement": {
+                  "enum": ["cli", "inherited", "none"]
+                },
+                "network": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["args", "enforcement", "network"],
+              "additionalProperties": false
+            },
+            "worktree-setup": {
+              "type": "object",
+              "properties": {
+                "args": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  }
+                },
+                "allow": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "uniqueItems": true
+                },
+                "enforcement": {
+                  "enum": ["cli", "inherited", "none"]
+                },
+                "network": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["args", "enforcement", "network"],
+              "additionalProperties": false
+            },
+            "read-only": {
+              "type": "object",
+              "properties": {
+                "args": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  }
+                },
+                "allow": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "uniqueItems": true
+                },
+                "enforcement": {
+                  "enum": ["cli", "inherited", "none"]
+                },
+                "network": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["args", "enforcement", "network"],
+              "additionalProperties": false
+            },
+            "bypass": {
+              "type": "object",
+              "properties": {
+                "args": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  }
+                },
+                "allow": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "uniqueItems": true
+                },
+                "enforcement": {
+                  "enum": ["cli", "inherited", "none"]
+                },
+                "network": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["args", "enforcement", "network"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["workspace-write", "worktree-setup", "read-only"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["flags", "profiles"],
+      "additionalProperties": false
+    },
+    "environment": {
+      "type": "object",
+      "properties": {
+        "inherit": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "uniqueItems": true
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
     }
   },
   "required": [

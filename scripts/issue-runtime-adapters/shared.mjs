@@ -1,4 +1,11 @@
-import { findRuntime, isRetiredCommand } from "../ai-template/registry.mjs";
+import { buildRuntimeEnvironment } from "./environment.mjs";
+import {
+  findRuntime,
+  isModelAllowed,
+  isPermissionArgument,
+  isRetiredCommand,
+} from "../ai-template/registry.mjs";
+import { evaluateRoute } from "../enterprise-route-policy.mjs";
 import { loadRepositoryConfig } from "../repository-config.mjs";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -20,6 +27,18 @@ export const REASON_CODES = Object.freeze({
   TTY_REQUIRED: "tty-required",
   NON_AGENTIC_PRINT_MODE: "non-agentic-print-mode",
   HEADLESS_EXEC_FAILED: "headless-exec-failed",
+  // Repository config `agents.models.<id>.allow` excludes this exact model; it is never probed.
+  MODEL_NOT_ALLOWED: "model-not-allowed",
+  // Repository config `agents.models.<id>.deny` matches the requested or reported model.
+  MODEL_DENIED: "model-denied",
+  // An alias-resolving runtime did not report exactly one canonical model during the probe.
+  MODEL_UNRESOLVED: "model-unresolved",
+  // Enterprise route attestation (opt-in) did not admit this runtime/model/purpose.
+  ENTERPRISE_DENIED: "enterprise-route-denied",
+  // The CLI reported denied tool calls and the probe task did not complete.
+  PERMISSION_DENIED: "permission-denied",
+  // The permission policy leaves this runtime no role it can run; it is never probed.
+  PERMISSION_UNAVAILABLE: "permission-unavailable",
 });
 
 // Bumped from 30s: CLI authentication / model catalogs
@@ -30,7 +49,8 @@ export const DEFAULT_WORKER_TIMEOUT_MS = 3_600_000;
 // status check), so it gets its own, longer budget.
 export const DEFAULT_HEADLESS_PROBE_TIMEOUT_MS = 120_000;
 
-export const PROBE_SCHEMA_VERSION = 4;
+// 6: permission arguments left the selector; records carry the permission fingerprint.
+export const PROBE_SCHEMA_VERSION = 6;
 
 /** Stderr/stdout patterns that indicate the CLI demanded a real TTY/PTY. */
 const TTY_REQUIRED_PATTERN =
@@ -41,7 +61,10 @@ const TTY_REQUIRED_PATTERN =
  * @param {string} command
  * @param {{ env?: NodeJS.ProcessEnv, pathEnv?: string }} [options]
  */
-export async function resolveExecutable(command, { env = process.env, pathEnv } = {}) {
+export async function resolveExecutable(
+  command,
+  { env = buildRuntimeEnvironment(), pathEnv } = {},
+) {
   if (typeof command !== "string" || !command.trim()) return null;
   if (command.includes("/") || command.includes("\\")) {
     try {
@@ -53,7 +76,9 @@ export async function resolveExecutable(command, { env = process.env, pathEnv } 
   }
   const pathValue = pathEnv ?? env.PATH ?? env.Path ?? "";
   const extensions =
-    process.platform === "win32" ? (env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";").filter(Boolean) : [""];
+    process.platform === "win32"
+      ? (env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";").filter(Boolean)
+      : [""];
   for (const directory of pathValue.split(path.delimiter).filter(Boolean)) {
     for (const extension of extensions) {
       const candidate = path.join(directory, command + extension);
@@ -82,12 +107,13 @@ export function runProcess(
   args,
   {
     timeoutMs = DEFAULT_PROBE_TIMEOUT_MS,
-    env = process.env,
+    env,
     cwd,
     input,
     killSignal = "SIGTERM",
   } = {},
 ) {
+  if (!env) return Promise.reject(new Error("runtime-env-policy-required"));
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
     return Promise.reject(new Error("invalid-timeout-ms"));
   }
@@ -99,7 +125,10 @@ export function runProcess(
     const child = spawn(command, args, {
       env,
       cwd,
-      stdio: input === undefined ? ["ignore", "pipe", "pipe"] : ["pipe", "pipe", "pipe"],
+      stdio:
+        input === undefined
+          ? ["ignore", "pipe", "pipe"]
+          : ["pipe", "pipe", "pipe"],
     });
     const stdoutChunks = [];
     const stderrChunks = [];
@@ -120,7 +149,9 @@ export function runProcess(
       if (!child.pid) return;
       try {
         if (process.platform === "win32") {
-          spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"]);
+          spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+            env: buildRuntimeEnvironment(),
+          });
         } else {
           child.kill(signal);
         }
@@ -190,17 +221,22 @@ export function runProcess(
  * @param {NodeJS.ProcessEnv} [options.env]
  * @param {string[]} [options.args] - selector args (model flags etc.) to place
  *   before the generated task prompt; must not include the prompt itself.
- * @returns {Promise<{ok: true} | {ok: false, reason: string}>}
+ * @param {boolean} [options.resolveModel] - the selector passes an alias; require
+ *   exactly one reported canonical model and return it instead of comparing.
+ * @returns {Promise<{ok: true, reportedModel?: string} | {ok: false, reason: string}>}
  */
 export async function runHeadlessExecProbe({
   cliPath,
   args = [],
   expectedModel,
+  resolveModel = false,
   run = runProcess,
   timeoutMs = DEFAULT_HEADLESS_PROBE_TIMEOUT_MS,
-  env = process.env,
+  env = buildRuntimeEnvironment(),
 } = {}) {
-  const sandboxDir = await fs.mkdtemp(path.join(os.tmpdir(), "headless-probe-"));
+  const sandboxDir = await fs.mkdtemp(
+    path.join(os.tmpdir(), "headless-probe-"),
+  );
   try {
     const marker = randomBytes(8).toString("hex");
     const artifactPath = path.join(sandboxDir, "probe.txt");
@@ -210,24 +246,45 @@ export async function runHeadlessExecProbe({
       "Do not modify or create any other file. Do not ask questions. Do not explain your steps.",
     ].join("\n");
 
-    const result = await run(cliPath, [...args, prompt], { timeoutMs, env, cwd: sandboxDir });
+    const result = await run(cliPath, [...args, prompt], {
+      timeoutMs,
+      env,
+      cwd: sandboxDir,
+    });
 
     let artifactMatches = false;
     try {
-      artifactMatches = (await fs.readFile(artifactPath, "utf8")).trim() === marker;
+      artifactMatches =
+        (await fs.readFile(artifactPath, "utf8")).trim() === marker;
     } catch {
       artifactMatches = false;
     }
-    if (result.timedOut) return { ok: false, reason: REASON_CODES.VERIFICATION_TIMEOUT };
+    if (result.timedOut)
+      return { ok: false, reason: REASON_CODES.VERIFICATION_TIMEOUT };
     const combinedOutput = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
-    if (expectedModel && reportedModels(result).some((model) => model !== expectedModel)) {
+    const reported = [...new Set(reportedModels(result))];
+    if (
+      !resolveModel &&
+      expectedModel &&
+      reported.some((model) => model !== expectedModel)
+    ) {
       return { ok: false, reason: REASON_CODES.MODEL_MISMATCH };
     }
-    if (artifactMatches && result.code === 0) return { ok: true };
-    if (TTY_REQUIRED_PATTERN.test(combinedOutput)) return { ok: false, reason: REASON_CODES.TTY_REQUIRED };
+    if (artifactMatches && result.code === 0) {
+      if (!resolveModel) return { ok: true };
+      // Canonical identity comes only from the runtime's machine-readable report.
+      return reported.length === 1
+        ? { ok: true, reportedModel: reported[0] }
+        : { ok: false, reason: REASON_CODES.MODEL_UNRESOLVED };
+    }
+    if (reportsPermissionDenials(result))
+      return { ok: false, reason: REASON_CODES.PERMISSION_DENIED };
+    if (TTY_REQUIRED_PATTERN.test(combinedOutput))
+      return { ok: false, reason: REASON_CODES.TTY_REQUIRED };
     // Exited cleanly but produced no artifact: a print/response-only mode
     // that never actually exercised a tool (observed for `agy --print`).
-    if (result.code === 0) return { ok: false, reason: REASON_CODES.NON_AGENTIC_PRINT_MODE };
+    if (result.code === 0)
+      return { ok: false, reason: REASON_CODES.NON_AGENTIC_PRINT_MODE };
     return { ok: false, reason: REASON_CODES.HEADLESS_EXEC_FAILED };
   } finally {
     await fs.rm(sandboxDir, { recursive: true, force: true }).catch(() => {});
@@ -252,6 +309,20 @@ export function reportedModels(result) {
   return models;
 }
 
+/** True when a machine-readable result event lists denied tool calls. Reads only the count. */
+export function reportsPermissionDenials(result) {
+  for (const output of [result.stdout, result.stderr])
+    for (const line of String(output ?? "").split(/\r?\n/)) {
+      try {
+        const denials = JSON.parse(line)?.permission_denials;
+        if (Array.isArray(denials) && denials.length > 0) return true;
+      } catch {
+        // not a JSON event
+      }
+    }
+  return false;
+}
+
 /** Verify one exact candidate, isolating failures and exposing closed reasons only. */
 export async function verifyModelCandidate(candidate, ctx = {}) {
   try {
@@ -260,15 +331,23 @@ export async function verifyModelCandidate(candidate, ctx = {}) {
       cliPath: tokens[0],
       args: [...tokens.slice(1), ...(ctx.extraArgs ?? [])],
       expectedModel: candidate.model,
+      resolveModel: ctx.resolveModel === true,
       run: ctx.run ?? runProcess,
-      timeoutMs: ctx.headlessProbeTimeoutMs ?? DEFAULT_HEADLESS_PROBE_TIMEOUT_MS,
-      env: ctx.env ?? process.env,
+      timeoutMs:
+        ctx.headlessProbeTimeoutMs ?? DEFAULT_HEADLESS_PROBE_TIMEOUT_MS,
+      env: ctx.env ?? buildRuntimeEnvironment(),
     });
-    if (result?.ok === true) return { ok: true };
+    if (result?.ok === true) {
+      if (ctx.resolveModel !== true) return { ok: true };
+      return typeof result.reportedModel === "string" && result.reportedModel
+        ? { ok: true, reportedModel: result.reportedModel }
+        : { ok: false, reason: REASON_CODES.MODEL_UNRESOLVED };
+    }
     return {
       ok: false,
       reason: Object.values(REASON_CODES).includes(result?.reason)
-        ? result.reason : REASON_CODES.HEADLESS_EXEC_FAILED,
+        ? result.reason
+        : REASON_CODES.HEADLESS_EXEC_FAILED,
     };
   } catch {
     return { ok: false, reason: REASON_CODES.PROBE_FAILED };
@@ -301,20 +380,63 @@ export function splitSelector(selector) {
   return tokens;
 }
 
+/** Match only exact model tokens recorded by discovery for this runtime. */
+export function selectorTargetsRoute(route, root = process.cwd()) {
+  const tokens = splitSelector(route.selector);
+  if (tokens.includes(route.model)) return true;
+  return (
+    findRuntime(route.agent, root)?.models?.resolveReportedModel === true &&
+    typeof route.requestedModel === "string" &&
+    route.requestedModel.length > 0 &&
+    tokens.includes(route.requestedModel)
+  );
+}
+
+/**
+ * True when a selector carries permission-layer arguments. Permission argv is rebuilt
+ * from the registry on every launch, so a selector from a cache, run state or a
+ * hand-written `--route` can never add or loosen permissions.
+ */
+export function selectorHasPermissionArgs(route, root = process.cwd()) {
+  const runtime = findRuntime(route?.agent, root);
+  return splitSelector(route.selector)
+    .slice(1)
+    .some((token) => isPermissionArgument(token, runtime));
+}
+
 /** Retirement is registry data, including executable aliases in cached selectors. */
 export function isRetiredRuntimeRoute(route, root = process.cwd()) {
   if (findRuntime(route?.agent, root)?.retired) return true;
-  if (typeof route?.selector !== "string" || !route.selector.trim()) return false;
+  if (typeof route?.selector !== "string" || !route.selector.trim())
+    return false;
   return isRetiredCommand(splitSelector(route.selector)[0], root);
+}
+
+/** A route excluded by the runtime's model allowlist or deny patterns (model or requested value). */
+export function isDisallowedModelRoute(route, root = process.cwd()) {
+  if (!isModelAllowed(route?.agent, route?.model, root, route?.requestedModel))
+    return true;
+  // Enterprise mode (opt-in): the live attestation must also admit the route. Purpose is checked at launch.
+  const runtime = findRuntime(route?.agent, root);
+  return !evaluateRoute(
+    {
+      runtime: runtime?.id,
+      requestedModel: route?.requestedModel ?? route?.model,
+      model: route?.model,
+    },
+    { root },
+  ).allow;
 }
 
 /**
  * @typedef {{ agent: string, model: string, requestedModel?: string, role: string, selector: string,
- *   timeoutMs: number, selectable: boolean, verifiable: boolean }} CapabilityRecord
+ *   timeoutMs: number, selectable: boolean, verifiable: boolean, permissionFingerprint?: string,
+ *   permissionRoles?: string[] }} CapabilityRecord
  */
 /**
  * @param {{ agent: string, model?: string, requestedModel?: string, role: string, selector: string,
- *   timeoutMs?: number, selectable?: boolean, verifiable?: boolean }} fields
+ *   timeoutMs?: number, selectable?: boolean, verifiable?: boolean, permissionFingerprint?: string,
+ *   permissionRoles?: string[] }} fields
  * @returns {CapabilityRecord}
  */
 export function capabilityRecord({
@@ -326,6 +448,8 @@ export function capabilityRecord({
   timeoutMs = DEFAULT_WORKER_TIMEOUT_MS,
   selectable = true,
   verifiable = true,
+  permissionFingerprint,
+  permissionRoles,
 }) {
   const record = {
     agent,
@@ -337,6 +461,11 @@ export function capabilityRecord({
     timeoutMs,
   };
   if (requestedModel !== undefined) record.requestedModel = requestedModel;
+  // Hashes and role names only: the permission argv itself is rebuilt at launch.
+  if (permissionFingerprint !== undefined)
+    record.permissionFingerprint = permissionFingerprint;
+  if (permissionRoles !== undefined)
+    record.permissionRoles = [...permissionRoles];
   return record;
 }
 
@@ -357,7 +486,14 @@ export function diagnostic({ agent, status, reason, model } = {}) {
  * Never throws; returns null on any failure so a version check never blocks
  * discovery. Output is a short version string, not prompt/response content.
  */
-export async function readCliVersion(cliPath, { run = runProcess, timeoutMs = 10_000, env = process.env } = {}) {
+export async function readCliVersion(
+  cliPath,
+  {
+    run = runProcess,
+    timeoutMs = 10_000,
+    env = buildRuntimeEnvironment(),
+  } = {},
+) {
   try {
     const result = await run(cliPath, ["--version"], { timeoutMs, env });
     if (result.timedOut || result.code !== 0) return null;
@@ -373,7 +509,10 @@ export async function readCliVersion(cliPath, { run = runProcess, timeoutMs = 10
  */
 export async function getRepositoryCommit(cwd) {
   try {
-    const result = await runProcess("git", ["rev-parse", "HEAD"], { cwd });
+    const result = await runProcess("git", ["rev-parse", "HEAD"], {
+      cwd,
+      env: process.env,
+    });
     if (result.code !== 0) return null;
     return String(result.stdout ?? "").trim() || null;
   } catch {
@@ -388,16 +527,29 @@ export async function getRepositoryCommit(cwd) {
 export async function verifyRepositoryFreshness(cwd) {
   const { baseBranch } = loadRepositoryConfig(cwd).repository;
   const baseRef = `origin/${baseBranch}`;
-  const fetchResult = await runProcess("git", ["fetch", "origin", baseBranch], { cwd });
+  const fetchResult = await runProcess("git", ["fetch", "origin", baseBranch], {
+    cwd,
+    env: process.env,
+  });
   if (fetchResult.code !== 0) {
     throw new Error("orchestrator-checkout-stale:fetch-failed");
   }
 
-  const mergeBaseResult = await runProcess("git", ["merge-base", "--is-ancestor", baseRef, "HEAD"], { cwd });
+  const mergeBaseResult = await runProcess(
+    "git",
+    ["merge-base", "--is-ancestor", baseRef, "HEAD"],
+    { cwd, env: process.env },
+  );
   if (mergeBaseResult.code !== 0) {
-    const headResult = await runProcess("git", ["rev-parse", "HEAD"], { cwd });
-    const baseResult = await runProcess("git", ["rev-parse", baseRef], { cwd });
-    
+    const headResult = await runProcess("git", ["rev-parse", "HEAD"], {
+      cwd,
+      env: process.env,
+    });
+    const baseResult = await runProcess("git", ["rev-parse", baseRef], {
+      cwd,
+      env: process.env,
+    });
+
     const formatSha = (res) => {
       const out = String(res.stdout ?? "").trim();
       const err = String(res.stderr ?? "").trim();
@@ -406,7 +558,9 @@ export async function verifyRepositoryFreshness(cwd) {
 
     const headSha = formatSha(headResult);
     const baseSha = formatSha(baseResult);
-    throw new Error(`orchestrator-checkout-stale:head=${headSha},${baseRef}=${baseSha}`);
+    throw new Error(
+      `orchestrator-checkout-stale:head=${headSha},${baseRef}=${baseSha}`,
+    );
   }
 }
 
@@ -437,7 +591,8 @@ export async function writeJsonAtomic(filePath, value) {
  * @param {string[]} args
  * @param {{ timeoutMs?: number, env?: NodeJS.ProcessEnv, cwd?: string }} [options]
  */
-export function spawnWorker(command, args, { timeoutMs, env = process.env, cwd } = {}) {
+export function spawnWorker(command, args, { timeoutMs, env, cwd } = {}) {
+  if (!env) throw new Error("runtime-env-policy-required");
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
     throw new Error("invalid-timeout-ms");
   }
@@ -459,7 +614,9 @@ export function spawnWorker(command, args, { timeoutMs, env = process.env, cwd }
     if (!child.pid) return;
     try {
       if (process.platform === "win32") {
-        spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"]);
+        spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+          env: buildRuntimeEnvironment(),
+        });
       } else {
         process.kill(-child.pid, signal);
       }
@@ -490,7 +647,13 @@ export function spawnWorker(command, args, { timeoutMs, env = process.env, cwd }
       finish({ code, signal, timedOut, pid: child.pid });
     });
     child.on("error", () => {
-      finish({ code: null, signal: null, timedOut, pid: child.pid, error: true });
+      finish({
+        code: null,
+        signal: null,
+        timedOut,
+        pid: child.pid,
+        error: true,
+      });
     });
   });
 
@@ -506,6 +669,14 @@ export function spawnWorker(command, args, { timeoutMs, env = process.env, cwd }
 
 const NO_STATE_LEAK_RULE =
   "Do not store credentials, Issue bodies, prompts, diffs, or model response bodies in orchestrator run state.";
+
+// issue-implementation (and handoff-issue, which continues its workflow)
+// dispatches its own reviewer before the PR. Under a role program the
+// orchestrator already runs the one review pass per Issue as a separate role,
+// so an implementer that also followed the skill would review the Issue twice
+// on a route the run state never records.
+const SKIP_SKILL_REVIEW_RULE =
+  "Do NOT dispatch a reviewer role or run the skill's review step yourself: the orchestrator runs the review as a separate role. Go straight to push and pull request handling.";
 
 /**
  * Role-specific instructions. Each role runs as its own CLI process, so a
@@ -542,6 +713,7 @@ function roleInstructions({ role, issueNumber, skill, reviewPass, fixCycle }) {
     return [
       `Address the reviewer's findings for this Issue (fix cycle ${fixCycle}). A pull request already exists.`,
       `Use the repository ${skill} skill to resume the existing Issue worktree.`,
+      SKIP_SKILL_REVIEW_RULE,
       `Read the findings with \`gh pr view --comments\`: take the newest comment whose first line starts with \`role=reviewer\`.`,
       "Do NOT create a pull request — push to the same branch so the existing one updates.",
       `After pushing, post ONE pull request comment starting with the exact line \`role=implementer fix-cycle=${fixCycle}\`, stating per finding what you changed or why you did not.`,
@@ -549,15 +721,17 @@ function roleInstructions({ role, issueNumber, skill, reviewPass, fixCycle }) {
     ];
   return [
     `Implement exactly one GitHub Issue using the repository ${skill} skill.`,
+    SKIP_SKILL_REVIEW_RULE,
     "Report role-complete with role=implementer once the work is committed, pushed, and the pull request exists.",
   ];
 }
 
 /**
- * Build the minimal worker prompt — role, Issue number, and route labels
- * only. No Issue body, diff, or personal data ever enters the prompt.
+ * Build the minimal worker prompt — role, Issue number, route labels, and the
+ * non-sensitive lease session ID for a worker that owns the Issue worktree.
+ * No Issue body, diff, or personal data ever enters the prompt.
  * @param {{ issueNumber: number, agent: string, model: string, releasePolicy: string, nextMilestone: string,
- *   role?: string, skill?: string, reviewPass?: number, fixCycle?: number }} fields
+ *   role?: string, skill?: string, reviewPass?: number, fixCycle?: number, leaseSession?: string }} fields
  */
 export function buildWorkerPrompt({
   issueNumber,
@@ -569,7 +743,12 @@ export function buildWorkerPrompt({
   skill = "issue-implementation",
   reviewPass,
   fixCycle,
+  leaseSession,
 }) {
+  const lease =
+    leaseSession === undefined
+      ? []
+      : leaseInstructions({ issueNumber, agent, leaseSession });
   if (!role) {
     // Single-worker mode: one worker owns the whole Issue, as before roles.
     return [
@@ -578,6 +757,7 @@ export function buildWorkerPrompt({
       `Assigned route: agent=${agent} model=${model}`,
       `Release policy: ${releasePolicy}`,
       `Next milestone: ${nextMilestone}`,
+      ...lease,
       NO_STATE_LEAK_RULE,
     ].join("\n");
   }
@@ -588,6 +768,20 @@ export function buildWorkerPrompt({
     `Assigned route: agent=${agent} model=${model}`,
     `Release policy: ${releasePolicy}`,
     `Next milestone: ${nextMilestone}`,
+    ...lease,
     NO_STATE_LEAK_RULE,
   ].join("\n");
+}
+
+/**
+ * The dispatcher-issued lease session. Some runtimes run shell commands in a
+ * separate long-running server that does not inherit the worker's environment,
+ * so the session travels in the prompt as well as in ISSUE_WORKTREE_SESSION.
+ */
+function leaseInstructions({ issueNumber, agent, leaseSession }) {
+  return [
+    `Issue worktree lease session: ${leaseSession}`,
+    `Pass \`--session ${leaseSession}\` to every scripts/issue-worktree.sh create, acquire, handoff, and release call for Issue #${issueNumber}. The dispatcher renews this lease while you run; do not invent another session ID.`,
+    `Before each commit and each push, run \`bash scripts/issue-worktree.sh acquire ${issueNumber} --agent ${agent} --session ${leaseSession}\`. If it fails, stop without committing or pushing: another session has taken over the Issue.`,
+  ];
 }

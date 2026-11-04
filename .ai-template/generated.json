@@ -37,6 +37,10 @@
       "type": "link",
       "target": "../../skills/orchestrate-project-issues"
     },
+    ".agents/skills/refresh-model-catalog": {
+      "type": "link",
+      "target": "../../skills/refresh-model-catalog"
+    },
     ".agents/skills/requirements-review": {
       "type": "link",
       "target": "../../skills/requirements-review"
@@ -81,6 +85,10 @@
       "type": "link",
       "target": "../../skills/orchestrate-project-issues"
     },
+    ".claude/skills/refresh-model-catalog": {
+      "type": "link",
+      "target": "../../skills/refresh-model-catalog"
+    },
     ".claude/skills/requirements-review": {
       "type": "link",
       "target": "../../skills/requirements-review"
@@ -124,6 +132,10 @@
     ".opencode/skills/orchestrate-project-issues": {
       "type": "link",
       "target": "../../skills/orchestrate-project-issues"
+    },
+    ".opencode/skills/refresh-model-catalog": {
+      "type": "link",
+      "target": "../../skills/refresh-model-catalog"
     },
     ".opencode/skills/requirements-review": {
       "type": "link",

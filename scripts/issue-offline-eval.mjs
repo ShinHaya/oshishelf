@@ -56,8 +56,10 @@ export function sanitizeEpisodeData(obj) {
  * Reconstruct versioned episodes from a stream/array of raw telemetry events.
  */
 export function buildDatasetFromTelemetryEvents(events = [], options = {}) {
-  const datasetVersion = options.datasetVersion || DEFAULT_EVAL_CONFIG.datasetVersion;
-  const schemaVersion = options.schemaVersion || DEFAULT_EVAL_CONFIG.schemaVersion;
+  const datasetVersion =
+    options.datasetVersion || DEFAULT_EVAL_CONFIG.datasetVersion;
+  const schemaVersion =
+    options.schemaVersion || DEFAULT_EVAL_CONFIG.schemaVersion;
 
   // Group events by issue_id or correlationId
   const episodeMap = new Map();
@@ -70,7 +72,9 @@ export function buildDatasetFromTelemetryEvents(events = [], options = {}) {
       event = rawEvent; // allow raw episode event if already parsed/custom
     }
 
-    const issueId = event.issueNumber ? String(event.issueNumber) : event.issue_id || event.run_id;
+    const issueId = event.issueNumber
+      ? String(event.issueNumber)
+      : event.issue_id || event.run_id;
     if (!issueId) continue;
 
     if (!episodeMap.has(issueId)) {
@@ -78,17 +82,23 @@ export function buildDatasetFromTelemetryEvents(events = [], options = {}) {
         episode_id: `ep-${issueId}-${event.occurredAt || event.timestamp || Date.now()}`,
         issue_id: issueId,
         run_id: event.correlationId || event.run_id || `run-${issueId}`,
-        created_at: event.occurredAt || event.timestamp || new Date().toISOString(),
+        created_at:
+          event.occurredAt || event.timestamp || new Date().toISOString(),
         issue_features: {
           issue_number: issueId,
           labels: event.payload?.issue_labels || event.issue_labels || [],
           mode_hint: event.payload?.mode || event.mode,
         },
         eligible_modes: Array.from(VALID_MODES),
-        eligible_routes: loadRuntimeRegistry(options.cwd).enabled.map(r => r.name),
+        eligible_routes: loadRuntimeRegistry(options.cwd).enabled.map(
+          (r) => r.name,
+        ),
         selected_configuration: {
           execution_mode: event.payload?.mode || event.mode || "direct-review",
-          assigned_agent: event.payload?.selected?.agent || event.assigned_agent || loadRuntimeRegistry(options.cwd).enabled[0]?.name,
+          assigned_agent:
+            event.payload?.selected?.agent ||
+            event.assigned_agent ||
+            loadRuntimeRegistry(options.cwd).enabled[0]?.name,
         },
         route_decisions: [],
         role_executions: [],
@@ -109,7 +119,8 @@ export function buildDatasetFromTelemetryEvents(events = [], options = {}) {
       episode.role_executions.push(event);
     } else if (eventType === "terminal_outcome") {
       episode.terminal_outcome = event.payload || event;
-      if (event.occurredAt || event.timestamp) episode.updated_at = event.occurredAt || event.timestamp;
+      if (event.occurredAt || event.timestamp)
+        episode.updated_at = event.occurredAt || event.timestamp;
     }
   }
 
@@ -146,7 +157,8 @@ export class EvaluationPolicy {
     return {
       execution_mode: mode,
       implementer_route: episode.eligible_routes?.[0],
-      reviewer_route: mode === "single-agent" ? null : episode.eligible_routes?.[1] ?? null,
+      reviewer_route:
+        mode === "single-agent" ? null : (episode.eligible_routes?.[1] ?? null),
       retry_policy: "same-route",
     };
   }
@@ -164,7 +176,8 @@ export class LLMRankedPolicy extends EvaluationPolicy {
     const mode = episode.issue_features?.mode_hint || "multi-agent";
     return {
       execution_mode: mode,
-      implementer_route: episode.eligible_routes?.[1] ?? episode.eligible_routes?.[0],
+      implementer_route:
+        episode.eligible_routes?.[1] ?? episode.eligible_routes?.[0],
       reviewer_route: episode.eligible_routes?.[0] ?? null,
       retry_policy: "alternate-route",
     };
@@ -186,12 +199,21 @@ export class OfflineReplayEngine {
     const candidateConfig = policy.selectConfiguration(episode);
 
     // Hard Invariant 1: Candidate set restriction check
-    const isModeEligible = episode.eligible_modes.includes(candidateConfig.execution_mode);
-    const isImplementerRouteEligible = episode.eligible_routes.includes(candidateConfig.implementer_route);
+    const isModeEligible = episode.eligible_modes.includes(
+      candidateConfig.execution_mode,
+    );
+    const isImplementerRouteEligible = episode.eligible_routes.includes(
+      candidateConfig.implementer_route,
+    );
     const isReviewerRouteEligible =
-      !candidateConfig.reviewer_route || episode.eligible_routes.includes(candidateConfig.reviewer_route);
+      !candidateConfig.reviewer_route ||
+      episode.eligible_routes.includes(candidateConfig.reviewer_route);
 
-    if (!isModeEligible || !isImplementerRouteEligible || !isReviewerRouteEligible) {
+    if (
+      !isModeEligible ||
+      !isImplementerRouteEligible ||
+      !isReviewerRouteEligible
+    ) {
       return {
         episode_id: episode.episode_id,
         issue_id: episode.issue_id,
@@ -230,7 +252,9 @@ export class OfflineReplayEngine {
 
     // Counterfactual estimation factor if configuration differs from actual replay record
     const counterfactualEstimate = !isExactMatch;
-    const estimatedTokens = counterfactualEstimate ? Math.round(totalTokens * 1.05) : totalTokens;
+    const estimatedTokens = counterfactualEstimate
+      ? Math.round(totalTokens * 1.05)
+      : totalTokens;
 
     return {
       episode_id: episode.episode_id,
@@ -251,7 +275,8 @@ export class OfflineReplayEngine {
       },
       latency_ms: totalLatencyMs,
       human_intervention: Boolean(actualTerminal.human_intervention),
-      hard_constraint_violations: actualTerminal.hard_constraint_violations || 0,
+      hard_constraint_violations:
+        actualTerminal.hard_constraint_violations || 0,
       reviewer_findings_count: actualTerminal.reviewer_findings_count || 0,
     };
   }
@@ -274,19 +299,38 @@ export class OfflineReplayEngine {
       const validResults = episodeResults.filter((r) => !r.disqualified);
       const disqualifiedCount = totalCount - validResults.length;
 
-      const successfulCount = validResults.filter((r) => r.terminal_success).length;
+      const successfulCount = validResults.filter(
+        (r) => r.terminal_success,
+      ).length;
       const prMergedCount = validResults.filter((r) => r.pr_merged).length;
-      const totalTokens = validResults.reduce((sum, r) => sum + r.tokens.total, 0);
-      const totalLatency = validResults.reduce((sum, r) => sum + r.latency_ms, 0);
-      const humanInterventions = validResults.reduce((sum, r) => sum + (r.human_intervention ? 1 : 0), 0);
-      const constraintViolations = validResults.reduce((sum, r) => sum + r.hard_constraint_violations, 0);
+      const totalTokens = validResults.reduce(
+        (sum, r) => sum + r.tokens.total,
+        0,
+      );
+      const totalLatency = validResults.reduce(
+        (sum, r) => sum + r.latency_ms,
+        0,
+      );
+      const humanInterventions = validResults.reduce(
+        (sum, r) => sum + (r.human_intervention ? 1 : 0),
+        0,
+      );
+      const constraintViolations = validResults.reduce(
+        (sum, r) => sum + r.hard_constraint_violations,
+        0,
+      );
 
-      const terminalSuccessRate = totalCount > 0 ? successfulCount / totalCount : 0;
+      const terminalSuccessRate =
+        totalCount > 0 ? successfulCount / totalCount : 0;
       const prMergeRate = totalCount > 0 ? prMergedCount / totalCount : 0;
-      const avgTokensPerSuccess = successfulCount > 0 ? totalTokens / successfulCount : 0;
+      const avgTokensPerSuccess =
+        successfulCount > 0 ? totalTokens / successfulCount : 0;
 
       // Sample size warning
-      const sampleSizeWarning = totalCount < 10 ? "Sample size N < 10 is low; confidence interval may be wide." : null;
+      const sampleSizeWarning =
+        totalCount < 10
+          ? "Sample size N < 10 is low; confidence interval may be wide."
+          : null;
 
       resultsByPolicy.set(policy.name, {
         policy_name: policy.name,
@@ -296,7 +340,8 @@ export class OfflineReplayEngine {
         quality_metrics: {
           terminal_success_rate: terminalSuccessRate,
           pr_merge_rate: prMergeRate,
-          human_intervention_rate: totalCount > 0 ? humanInterventions / totalCount : 0,
+          human_intervention_rate:
+            totalCount > 0 ? humanInterventions / totalCount : 0,
           hard_constraint_violation_count: constraintViolations,
         },
         efficiency_metrics: {
@@ -332,21 +377,25 @@ export class OfflineReplayEngine {
     lines.push("");
 
     lines.push("## Policy Frontier Summary");
-    lines.push("| Policy Name | Version | Success Rate | PR Merge Rate | Avg Tokens/Success | Constraint Violations |");
+    lines.push(
+      "| Policy Name | Version | Success Rate | PR Merge Rate | Avg Tokens/Success | Constraint Violations |",
+    );
     lines.push("|---|---|---|---|---|---|");
 
     for (const p of evalSummary.policies) {
       const q = p.quality_metrics;
       const e = p.efficiency_metrics;
       lines.push(
-        `| ${p.policy_name} | ${p.policy_version} | ${(q.terminal_success_rate * 100).toFixed(1)}% | ${(q.pr_merge_rate * 100).toFixed(1)}% | ${Math.round(e.avg_tokens_per_successful_issue)} | ${q.hard_constraint_violation_count} |`
+        `| ${p.policy_name} | ${p.policy_version} | ${(q.terminal_success_rate * 100).toFixed(1)}% | ${(q.pr_merge_rate * 100).toFixed(1)}% | ${Math.round(e.avg_tokens_per_successful_issue)} | ${q.hard_constraint_violation_count} |`,
       );
     }
     lines.push("");
 
     for (const p of evalSummary.policies) {
       if (p.sample_size_warning) {
-        lines.push(`> ⚠️ **Warning [${p.policy_name}]**: ${p.sample_size_warning}`);
+        lines.push(
+          `> ⚠️ **Warning [${p.policy_name}]**: ${p.sample_size_warning}`,
+        );
       }
     }
 

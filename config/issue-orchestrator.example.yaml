@@ -13,6 +13,10 @@ run:
   #   never  - never
   # Legacy `false` (the old default) is read as auto; write `never` to opt out.
   parentAsWorker: auto
+  # Local model catalog (state/model-catalog.json): a runtime is re-listed when its
+  # entry is older than this many hours, failed, or its CLI version changed.
+  modelCatalog:
+    maxAgeHours: 168
   # Opt-in only: assisted also requires a local measured-evaluation approval record.
   triage:
     mode: off

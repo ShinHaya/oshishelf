@@ -47,13 +47,39 @@ that setting is omitted. Follow its Issue worktree rules.
 3. Create and acquire the Issue worktree with the lifecycle helper, passing the
    current agent and a non-sensitive stable session identifier:
    `bash scripts/issue-worktree.sh create <issue> <slug> --agent <agent> --session <session-id>`.
+   When `scripts/issue-dispatch.mjs` launched this session, use the lease
+   session ID from the prompt (also in `ISSUE_WORKTREE_SESSION`). Do not make
+   up another one. Otherwise record the session ID you chose, because every
+   later `acquire` and `release` call needs the same value.
 4. Move **all** subsequent operations to the absolute path printed by the helper.
 5. If creation or validation fails: stop and report. No primary-tree fallback.
+
+### Keep the lease
+
+The lease expires `ISSUE_WORKTREE_LEASE_TTL_SEC` seconds after it was last
+renewed (default 1 hour). After that, another session can take the worktree
+over with `handoff`, even if the recorded owner process is still running.
+Renew the lease by running `acquire` again from the same session:
+
+```bash
+bash scripts/issue-worktree.sh acquire <issue> --agent <agent> --session <session-id>
+```
+
+- A worker launched by `scripts/issue-dispatch.mjs` gets its lease renewed by
+  the dispatcher while it runs. It still runs the check before each commit
+  and push.
+- Without the dispatcher, run `acquire` before each long step (quality gates,
+  reviewer dispatch, CI watch) and at least once per lease period.
+- **Before every commit and every push, run `acquire`.** If it fails, another
+  session took the Issue over. Stop without committing or pushing, and report
+  this to the user. Never run `handoff` to take the lease back.
 
 ## Workflow
 
 Follow this workflow:
 
+<!-- Preserve workflow list spacing when integrating concurrent skill updates. -->
+<!-- prettier-ignore -->
 1. **Issue worktree start gate** (MUST — see above). Do not skip.
 2. Resolve repository settings with `node scripts/repository-config.mjs`.
    `repository.baseBranch` selects the trunk; when configuration is absent it
@@ -67,7 +93,7 @@ Follow this workflow:
 4. **Review before push or PR creation.** Dispatch a reviewer role from a
    **different** verified route using
    `node scripts/issue-dispatch.mjs --role reviewer
-   --execution-mode direct-review --review-pass 1` (plus the route, issue, release
+--execution-mode direct-review --review-pass 1` (plus the route, issue, release
    policy, and next-milestone flags). The reviewer works read-only in the existing
    Issue worktree: it reads the Issue acceptance criteria, changed file paths,
    `git diff origin/<baseBranch>..HEAD`, and the local test summary. No PR exists yet.
@@ -92,6 +118,14 @@ Follow this workflow:
    `same-route-reviewer:*` in the PR description. If route discovery fails,
    state that clearly and proceed without a reviewer pass; record this exception
    in the PR description.
+
+   **Role-program exception:** skip this whole step when you were dispatched as
+   the `implementer` role of an orchestrator role program (the prompt has a
+   `Role: implementer` line). The orchestrator runs the one review pass per
+   Issue as a separate reviewer role after the PR exists, so dispatching a
+   reviewer here would review the Issue twice. Go straight to step 5 and do not
+   claim a reviewer verdict in the PR description. Single-worker dispatches (no
+   `Role:` line) and direct human use of this skill keep this step.
 5. Push the branch to GitHub and create a PR with
    `gh pr create --base <baseBranch>`, using the configured branch resolved in
    step 2 even when GitHub has a different default branch. Include
@@ -108,7 +142,22 @@ Follow this workflow:
      verification results; this does not authorize merging.
    - If any check fails, inspect the failed run for that head with
      `gh run view <run-id> --log-failed`, identify the cause, and make a scoped
-     fix. Run applicable local checks, commit, and push to the same branch.
+     fix. When the failed check is a Cloud deploy or an infrastructure-as-code
+     apply, do not conclude from the CI log alone. A deploy can create a
+     revision that never starts or never receives traffic. Inspect the live
+     resources, logs, and metrics with the repository's read-only observer
+     before deciding the cause. Read the command and the identity name from
+     the development document (`repository.documents.development`, or
+     `docs/development.md` and `AGENTS.md` when that setting is omitted),
+     section [Deploy failure diagnosis](../../docs/development.md#deploy-failure-diagnosis),
+     and follow [references/cloud-observer.md](references/cloud-observer.md).
+     Do not hard-code a provider command, a configuration name, or a project
+     identifier in this skill, and do not fall back to a broader operator
+     identity. If the repository records no read-only procedure, say so and
+     stop that diagnosis. On a public repository the CI job may only add an
+     `::error::` annotation that points at the local procedure. Do not print
+     cloud logs, resource payloads, or tokens into the CI log. Run applicable
+     local checks, commit, and push to the same branch.
      Increment the counter for each CI fix cycle, then monitor the new head.
      CI fixes do **not** receive another reviewer pass.
    - Allow at most **3 CI fix cycles**. If CI/CD still fails after the third

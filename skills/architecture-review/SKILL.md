@@ -23,7 +23,7 @@ ignoring multi-tenant isolation in a hosted service). Where a classic concern
 genuinely does not apply, say "not applicable" explicitly under Criterion
 coverage rather than inventing a finding. The non-negotiable requirements
 stated in `AGENTS.md` and the canonical requirements document are fixed inputs — review whether the architecture
-*satisfies* them, never whether they are right.
+_satisfies_ them, never whether they are right.
 
 When the document names repository files, APIs, or implemented behavior,
 verify those claims against the current code before judging — a confirmed
@@ -84,7 +84,7 @@ verdict: PASS | NEEDS_CHANGES | NIT_ONLY
 Severity (this list is controlling for architecture review): `blocker`
 (the document's chosen design violates a non-negotiable or would lose or
 expose the user's data) · `major` (a real risk left undesigned, or an
-unrecorded load-bearing decision, likely to force rework — an *omission* is
+unrecorded load-bearing decision, likely to force rework — an _omission_ is
 at most `major`; `blocker` is reserved for what the document affirmatively
 chooses) · `minor` (clarity, small gaps) · `nit` (wording, optional). Verdict mapping: any
 `blocker`/`major` → `NEEDS_CHANGES`; only `minor`/`nit` → `NIT_ONLY`; no

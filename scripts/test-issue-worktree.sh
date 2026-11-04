@@ -189,4 +189,77 @@ OUT=$(assert_fails env ISSUE_WORKTREE_SKIP_GITHUB=1 "$HELPER" create 395 unknown
 assert_contains "$OUT" "unknown or retired agent"
 [ ! -d "$REPO/.worktrees/issue-395-unknown-agent" ] || fail "invalid agent created worktree"
 
+# Lease expiry and heartbeat. A runtime that runs commands through a
+# long-running server (opencode serve, Codex app-server) records that server
+# as the owner; it outlives the worker, so only the expiry can free the lease.
+LONG_LIVED_PID=''
+(cd "$TMP_ROOT" && exec sleep 300) &
+LONG_LIVED_PID=$!
+trap 'kill "$LONG_LIVED_PID" 2>/dev/null || true; rm -rf "$TMP_ROOT"' EXIT
+ISSUE_WORKTREE_SKIP_GITHUB=1 ISSUE_WORKTREE_OWNER_PID=$LONG_LIVED_PID \
+  "$HELPER" create 396 lease-expiry --agent "$FIRST_AGENT" --session lease-worker --repo "$REPO" >/dev/null
+LEASE_WORKTREE="$REPO/.worktrees/issue-396-lease-expiry"
+LEASE_STATE="$COMMON/issue-worktrees/396.json"
+assert_eq "$("$HELPER" status 396 --json --repo "$REPO" | jq -r .owner.pid)" "$LONG_LIVED_PID"
+
+set_lease_expiry() {
+  jq --argjson expires "$1" '.owner.expires_at_epoch=$expires' "$LEASE_STATE" > "$LEASE_STATE.tmp"
+  mv "$LEASE_STATE.tmp" "$LEASE_STATE"
+}
+
+# Within the expiry a live owner still blocks takeover, and the refusal names
+# the recorded command and expiry so a server owner is recognizable.
+OUT=$(assert_fails "$HELPER" handoff 396 --agent "$SECOND_AGENT" --session lease-takeover --repo "$REPO")
+assert_contains "$OUT" "owner process is still running"
+assert_contains "$OUT" "pid=$LONG_LIVED_PID"
+assert_contains "$OUT" "command="
+assert_contains "$OUT" "sleep"
+assert_contains "$OUT" "expires_at="
+
+# A heartbeat from the owning session pushes a lease that is about to expire
+# out by a full TTL, so continued heartbeats keep takeover refused.
+set_lease_expiry "$(($(date +%s) + 5))"
+ISSUE_WORKTREE_LEASE_TTL_SEC=600 ISSUE_WORKTREE_OWNER_PID=$LONG_LIVED_PID \
+  "$HELPER" acquire 396 --session lease-worker --heartbeat --repo "$REPO"
+EXPIRES_AFTER=$("$HELPER" status 396 --json --repo "$REPO" | jq -r .owner.expires_at_epoch)
+[ "$EXPIRES_AFTER" -ge "$(($(date +%s) + 500))" ] || fail "heartbeat did not extend the lease expiry"
+assert_eq "$("$HELPER" status 396 --json --repo "$REPO" | jq -r .owner.agent)" "$FIRST_AGENT"
+OUT=$(assert_fails "$HELPER" handoff 396 --agent "$SECOND_AGENT" --session lease-takeover --repo "$REPO")
+assert_contains "$OUT" "owner process is still running"
+
+# A heartbeat from another session never extends or takes over the lease.
+OUT=$(assert_fails "$HELPER" acquire 396 --session lease-takeover --heartbeat --repo "$REPO")
+assert_contains "$OUT" "another session"
+
+# Once heartbeats stop, the expired lease is free even though the recorded
+# owner process is still running.
+set_lease_expiry "$(($(date +%s) - 1))"
+kill -0 "$LONG_LIVED_PID" 2>/dev/null || fail "long-lived owner process exited early"
+"$HELPER" handoff 396 --agent "$SECOND_AGENT" --session lease-takeover --repo "$REPO" >/dev/null
+STATUS=$("$HELPER" status 396 --json --repo "$REPO")
+assert_eq "$(printf '%s' "$STATUS" | jq -r .handoff_epoch)" "2"
+assert_eq "$(printf '%s' "$STATUS" | jq -r .owner.agent)" "$SECOND_AGENT"
+
+# The superseded session can no longer acquire or heartbeat, so its lease
+# check before each commit stops it before two sessions write to the same worktree.
+OUT=$(assert_fails "$HELPER" acquire 396 --agent "$FIRST_AGENT" --session lease-worker --repo "$REPO")
+assert_contains "$OUT" "another session"
+OUT=$(assert_fails "$HELPER" acquire 396 --session lease-worker --heartbeat --repo "$REPO")
+assert_contains "$OUT" "another session"
+
+# A heartbeat never reactivates a released lease, so cleanup stays possible.
+"$HELPER" release 396 --session lease-takeover --repo "$REPO" >/dev/null
+OUT=$(assert_fails "$HELPER" acquire 396 --session lease-takeover --heartbeat --repo "$REPO")
+assert_contains "$OUT" "released"
+assert_eq "$("$HELPER" status 396 --json --repo "$REPO" | jq -r .owner.active)" "false"
+ISSUE_WORKTREE_PR_STATE=MERGED "$HELPER" cleanup 396 --pr 995 --repo "$REPO"
+[ ! -e "$LEASE_WORKTREE" ] || fail "expired-lease worktree still exists after cleanup"
+OUT=$(assert_fails "$HELPER" acquire 396 --agent "$SECOND_AGENT" --session lease-takeover --repo "$REPO")
+assert_contains "$OUT" "status is cleaned"
+
+OUT=$(assert_fails env ISSUE_WORKTREE_LEASE_TTL_SEC=0 "$HELPER" status 394 --repo "$REPO")
+assert_contains "$OUT" "ISSUE_WORKTREE_LEASE_TTL_SEC"
+OUT=$(assert_fails env ISSUE_WORKTREE_OWNER_PID=not-a-pid "$HELPER" status 394 --repo "$REPO")
+assert_contains "$OUT" "ISSUE_WORKTREE_OWNER_PID"
+
 printf 'issue worktree lifecycle tests passed\n'

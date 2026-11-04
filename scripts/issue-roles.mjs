@@ -34,7 +34,10 @@ export const VALID_ROLES = Object.freeze(Object.values(ROLES));
  * into a run — see MODE_PREFERENCES.
  */
 export const MODE_ROLE_PROGRAMS = Object.freeze({
-  [EXECUTION_MODES.DIRECT_REVIEW]: Object.freeze([ROLES.IMPLEMENTER, ROLES.REVIEWER]),
+  [EXECUTION_MODES.DIRECT_REVIEW]: Object.freeze([
+    ROLES.IMPLEMENTER,
+    ROLES.REVIEWER,
+  ]),
   [EXECUTION_MODES.PLAN_IMPLEMENT_REVIEW]: Object.freeze([
     ROLES.PLANNER,
     ROLES.IMPLEMENTER,
@@ -66,7 +69,11 @@ export function modePreferencesFor(riskCategory, dependencyDepth = 0) {
 }
 
 /** Reviewer verdicts returned in the `role-complete` event. */
-export const REVIEW_VERDICTS = Object.freeze(["PASS", "NEEDS_REVISION", "REJECTED"]);
+export const REVIEW_VERDICTS = Object.freeze([
+  "PASS",
+  "NEEDS_REVISION",
+  "REJECTED",
+]);
 
 /**
  * One review per Issue. A
@@ -119,14 +126,21 @@ const DISALLOWED_PAYLOAD_KEY_SET = new Set(DISALLOWED_PAYLOAD_KEYS);
  */
 export function selectExecutionMode(item = {}) {
   const riskCategory = item.riskCategory ?? "low";
-  const dependencyDepth = Array.isArray(item.dependencies) ? item.dependencies.length : 0;
+  const dependencyDepth = Array.isArray(item.dependencies)
+    ? item.dependencies.length
+    : 0;
   const eligibleModes = determineEligibleModes({
     riskCategory,
     size: item.size ?? "M",
     dependencyDepth,
-    ...(item.changeScopeCount === undefined ? {} : { changeScopeCount: item.changeScopeCount }),
+    ...(item.changeScopeCount === undefined
+      ? {}
+      : { changeScopeCount: item.changeScopeCount }),
   });
-  const mode = rankAndSelectMode(eligibleModes, modePreferencesFor(riskCategory, dependencyDepth));
+  const mode = rankAndSelectMode(
+    eligibleModes,
+    modePreferencesFor(riskCategory, dependencyDepth),
+  );
   return { mode, eligibleModes, selectionReason: "deterministic-policy" };
 }
 
@@ -135,6 +149,21 @@ export function roleProgramForMode(mode) {
   if (!program) throw new Error(`unsupported-execution-mode:${mode}`);
   return [...program];
 }
+
+/**
+ * True when the route's recorded permission policy lets it run `role`. A route
+ * probed before permission roles were recorded is not filtered here; dispatch
+ * still refuses it on a permission fingerprint mismatch.
+ */
+export function routeServesRole(route, role) {
+  return (
+    !Array.isArray(route?.permissionRoles) ||
+    route.permissionRoles.includes(role)
+  );
+}
+
+const sameAgentModel = (left, right) =>
+  left.agent === right.agent && left.model === right.model;
 
 /**
  * Bind each role in the program to a verified route.
@@ -146,10 +175,58 @@ export function roleProgramForMode(mode) {
  *
  * `planner` takes the reviewer's route when one is distinct, so the plan and
  * the implementation come from different runtimes.
+ *
+ * Each role only takes a route whose permission policy can run it (for
+ * example, a sandbox without network cannot post the review). When no route
+ * can run a role, it keeps a route anyway and dispatch refuses it with a
+ * closed permission reason, so the run stops instead of loosening permissions.
  */
 export function assignRoleRoutes(workerRoutes, program) {
+  const pool = workerRoutes ?? [];
+  const eligible = (role) => pool.filter((r) => routeServesRole(r, role));
+  if (
+    Object.values(ROLES).every((role) => eligible(role).length === pool.length)
+  )
+    return assignUnrestrictedRoleRoutes(pool, program);
+  const reviewers = eligible(ROLES.REVIEWER);
+  const implementers = eligible(ROLES.IMPLEMENTER);
+  // Independent review is the hard rule: take the first implementer route that
+  // still leaves a distinct route permitted to review.
+  const implementer =
+    implementers.find((r) =>
+      reviewers.some((reviewer) => !sameAgentModel(reviewer, r)),
+    ) ??
+    implementers[0] ??
+    pool[0];
+  if (!implementer) throw new Error("no-worker-routes-available");
+  const reviewer =
+    reviewers.find((r) => !sameAgentModel(r, implementer)) ??
+    reviewers[0] ??
+    implementer;
+  const planners = eligible(ROLES.PLANNER);
+  const planner = planners.includes(reviewer)
+    ? reviewer
+    : (planners.find((r) => !sameAgentModel(r, implementer)) ??
+      planners[0] ??
+      reviewer);
+  const byRole = {
+    [ROLES.IMPLEMENTER]: implementer,
+    [ROLES.REVIEWER]: reviewer,
+    [ROLES.PLANNER]: planner,
+  };
+  return {
+    routes: Object.fromEntries(program.map((role) => [role, byRole[role]])),
+    ...(sameAgentModel(reviewer, implementer)
+      ? { degraded: "same-route-reviewer:no-permitted-distinct-route" }
+      : {}),
+  };
+}
+
+function assignUnrestrictedRoleRoutes(workerRoutes, program) {
   const allowSameRoute = (workerRoutes ?? []).length === 1;
-  const { implementer, reviewer } = assignRoutesForMode(workerRoutes, { allowSameRoute });
+  const { implementer, reviewer } = assignRoutesForMode(workerRoutes, {
+    allowSameRoute,
+  });
   const routes = {};
   for (const role of program) {
     if (role === ROLES.IMPLEMENTER) routes[role] = implementer;
@@ -157,7 +234,9 @@ export function assignRoleRoutes(workerRoutes, program) {
   }
   return {
     routes,
-    ...(allowSameRoute ? { degraded: "same-route-reviewer:single-verified-route" } : {}),
+    ...(allowSameRoute
+      ? { degraded: "same-route-reviewer:single-verified-route" }
+      : {}),
   };
 }
 
@@ -208,18 +287,28 @@ export function distinctPreferenceRole(role) {
 export function advanceRoleProgram(roleState, { role, verdict } = {}) {
   const program = roleState.program;
   const current = program[roleState.index];
-  if (current !== role) throw new Error(`role-mismatch:${roleState.issue}:${role}`);
+  if (current !== role)
+    throw new Error(`role-mismatch:${roleState.issue}:${role}`);
 
   if (role !== ROLES.REVIEWER) {
     // A fix pass after the review budget is spent (review findings or a gate
     // reopen) is not re-reviewed: it goes straight back to the milestone gate.
-    if (role === ROLES.IMPLEMENTER && roleState.fixCycles > 0 && roleState.reviewPasses >= MAX_REVIEW_PASSES) {
-      return { ...roleState, index: program.indexOf(ROLES.REVIEWER), status: "awaiting-milestone" };
+    if (
+      role === ROLES.IMPLEMENTER &&
+      roleState.fixCycles > 0 &&
+      roleState.reviewPasses >= MAX_REVIEW_PASSES
+    ) {
+      return {
+        ...roleState,
+        index: program.indexOf(ROLES.REVIEWER),
+        status: "awaiting-milestone",
+      };
     }
     return { ...roleState, index: roleState.index + 1, status: "active" };
   }
 
-  if (!REVIEW_VERDICTS.includes(verdict)) throw new Error(`invalid-review-verdict:${verdict}`);
+  if (!REVIEW_VERDICTS.includes(verdict))
+    throw new Error(`invalid-review-verdict:${verdict}`);
   const reviewPasses = roleState.reviewPasses + 1;
   if (verdict === "PASS") {
     return { ...roleState, reviewPasses, status: "awaiting-milestone" };
@@ -229,7 +318,8 @@ export function advanceRoleProgram(roleState, { role, verdict } = {}) {
       ...roleState,
       reviewPasses,
       status: "blocked",
-      blockedReason: verdict === "REJECTED" ? "review-rejected" : "review-passes-exhausted",
+      blockedReason:
+        verdict === "REJECTED" ? "review-rejected" : "review-passes-exhausted",
     };
   }
   // NEEDS_REVISION: one fix pass by the implementer, which is not re-reviewed.
@@ -252,7 +342,11 @@ export function reopenRoleProgramForFix(roleState, reason) {
   // not resolve the cross-Issue problem, so stop rather than cycle.
   const gateReopens = roleState.gateReopens ?? 0;
   if (gateReopens >= MAX_GATE_REOPENS) {
-    return { ...roleState, status: "blocked", blockedReason: `${reason}-twice` };
+    return {
+      ...roleState,
+      status: "blocked",
+      blockedReason: `${reason}-twice`,
+    };
   }
   return {
     ...roleState,
@@ -266,7 +360,9 @@ export function reopenRoleProgramForFix(roleState, reason) {
 /** Reject any payload carrying a disallowed key, at any depth. */
 export function assertNoDisallowedKeys(value, path = "") {
   if (Array.isArray(value)) {
-    value.forEach((item, index) => assertNoDisallowedKeys(item, `${path}[${index}]`));
+    value.forEach((item, index) =>
+      assertNoDisallowedKeys(item, `${path}[${index}]`),
+    );
     return;
   }
   if (typeof value !== "object" || value === null) return;
@@ -295,7 +391,8 @@ export function buildRoleDispatchPayload({
   fixCycle,
 }) {
   if (!VALID_ROLES.includes(role)) throw new Error(`invalid-role:${role}`);
-  if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0) throw new Error("issue-number-required");
+  if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0)
+    throw new Error("issue-number-required");
   const payload = {
     role,
     issueNumber,
@@ -307,12 +404,13 @@ export function buildRoleDispatchPayload({
     ...(role === ROLES.REVIEWER ? { reviewPass: reviewPass ?? 1 } : {}),
     // A fix cycle tells the implementer that a pull request already exists and
     // that the reviewer's findings are waiting on it.
-    ...(role === ROLES.IMPLEMENTER && Number(fixCycle) > 0 ? { fixCycle: Number(fixCycle) } : {}),
+    ...(role === ROLES.IMPLEMENTER && Number(fixCycle) > 0
+      ? { fixCycle: Number(fixCycle) }
+      : {}),
   };
   assertNoDisallowedKeys(payload);
   return payload;
 }
-
 
 /** Recompute provisional plan fields after explicit triage adoption. */
 export function applyTriageDecision(item, decision) {
@@ -321,8 +419,15 @@ export function applyTriageDecision(item, decision) {
   const sizes = ["XS", "S", "M", "L", "XL"];
   if (!risks.includes(decision.riskCategory) || !sizes.includes(decision.size))
     throw new Error("triage-invalid-decision");
-  const riskCategory = risks[Math.max(risks.indexOf(item.riskCategory ?? "low"), risks.indexOf(decision.riskCategory))];
-  const size = sizes[Math.max(sizes.indexOf(item.size), sizes.indexOf(decision.size))];
+  const riskCategory =
+    risks[
+      Math.max(
+        risks.indexOf(item.riskCategory ?? "low"),
+        risks.indexOf(decision.riskCategory),
+      )
+    ];
+  const size =
+    sizes[Math.max(sizes.indexOf(item.size), sizes.indexOf(decision.size))];
   const effective = { ...item, riskCategory, size };
   const selected = selectExecutionMode(effective);
   let executionMode = selected.mode;
@@ -330,12 +435,23 @@ export function applyTriageDecision(item, decision) {
   if (item.modeOverride) {
     const proposed = item.modeOverride;
     let program;
-    try { program = roleProgramForMode(proposed.executionMode); } catch { throw new Error("triage-mode-conflict"); }
-    if (!selected.eligibleModes.includes(proposed.executionMode) ||
-        JSON.stringify(proposed.roleProgram) !== JSON.stringify(program))
+    try {
+      program = roleProgramForMode(proposed.executionMode);
+    } catch {
+      throw new Error("triage-mode-conflict");
+    }
+    if (
+      !selected.eligibleModes.includes(proposed.executionMode) ||
+      JSON.stringify(proposed.roleProgram) !== JSON.stringify(program)
+    )
       throw new Error("triage-mode-conflict");
     executionMode = proposed.executionMode;
     roleProgram = program;
   }
-  return { ...effective, eligibleModes: selected.eligibleModes, executionMode, roleProgram };
+  return {
+    ...effective,
+    eligibleModes: selected.eligibleModes,
+    executionMode,
+    roleProgram,
+  };
 }

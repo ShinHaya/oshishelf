@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { tmpdir } from "node:os";
 
 import {
   aggregateTokenUsage,
@@ -14,22 +15,28 @@ import {
 } from "../../scripts/issue-telemetry.mjs";
 
 const fixture = async (name) =>
-  JSON.parse(await readFile(new URL(`./fixtures/issue-telemetry/${name}`, import.meta.url), "utf8"));
+  JSON.parse(
+    await readFile(
+      new URL(`./fixtures/issue-telemetry/${name}`, import.meta.url),
+      "utf8",
+    ),
+  );
 
 test("validates common route, role, and terminal events and joins them by correlation ID", async () => {
   const events = await fixture("valid-v1.json");
 
   const validated = events.map(validateTelemetryEvent);
 
-  assert.equal(new Set(validated.map(({ correlationId }) => correlationId)).size, 1);
-  assert.deepEqual(validated[0].payload.candidates.map(({ agent }) => agent), [
-    "Codex",
-    "Claude",
-    "Grok",
-    "Gemini",
-  ]);
+  assert.equal(
+    new Set(validated.map(({ correlationId }) => correlationId)).size,
+    1,
+  );
+  assert.deepEqual(
+    validated[0].payload.candidates.map(({ agent }) => agent),
+    ["Codex", "Claude", "Grok", "Gemini"],
+  );
   assert.deepEqual(aggregateTokenUsage(validated), {
-    byIssue: { "9001": { exact: 100, estimate: 40, unavailable: 1 } },
+    byIssue: { 9001: { exact: 100, estimate: 40, unavailable: 1 } },
     byRole: { implementer: { exact: 100, estimate: 40, unavailable: 1 } },
   });
 });
@@ -50,11 +57,19 @@ test("rejects prohibited content anywhere in an event", async () => {
   const [event] = await fixture("valid-v1.json");
 
   assert.throws(
-    () => validateTelemetryEvent({ ...event, payload: { ...event.payload, prompt: "secret" } }),
+    () =>
+      validateTelemetryEvent({
+        ...event,
+        payload: { ...event.payload, prompt: "secret" },
+      }),
     /privacy-prohibited-field:payload\.prompt/,
   );
   assert.throws(
-    () => validateTelemetryEvent({ ...event, payload: { ...event.payload, nested: { credentials: "secret" } } }),
+    () =>
+      validateTelemetryEvent({
+        ...event,
+        payload: { ...event.payload, nested: { credentials: "secret" } },
+      }),
     /privacy-prohibited-field:payload\.nested\.credentials/,
   );
 });
@@ -72,26 +87,39 @@ test("migrates the documented legacy fixture to the current schema", async () =>
 test("records closed duplicate, abandoned, timeout, and failed-handoff waste reasons", async () => {
   const events = await fixture("valid-v1.json");
   const terminal = events.find(({ type }) => type === "terminal_outcome");
-  const accepted = ["duplicate_node_execution", "abandoned_worker", "timeout", "failed_handoff"];
+  const accepted = [
+    "duplicate_node_execution",
+    "abandoned_worker",
+    "timeout",
+    "failed_handoff",
+  ];
 
   for (const reason of accepted) {
     assert.doesNotThrow(() =>
       validateTelemetryEvent({
         ...terminal,
         eventId: `evt-${reason}`,
-        payload: { ...terminal.payload, failureReasonCode: reason, wasteReasonCodes: [reason] },
+        payload: {
+          ...terminal.payload,
+          failureReasonCode: reason,
+          wasteReasonCodes: [reason],
+        },
       }),
     );
   }
   assert.throws(
-    () => validateTelemetryEvent({ ...terminal, payload: { ...terminal.payload, failureReasonCode: "free text" } }),
+    () =>
+      validateTelemetryEvent({
+        ...terminal,
+        payload: { ...terminal.payload, failureReasonCode: "free text" },
+      }),
     /invalid-failure-reason-code/,
   );
 });
 
-test("JsonlTelemetrySink emits, rotates, and reads events", async () => {
-  const testDir = path.join(process.cwd(), "tmp-test-telemetry-jsonl");
-  await rm(testDir, { recursive: true, force: true });
+test("JsonlTelemetrySink emits, rotates, and reads events", async (t) => {
+  const testDir = await mkdtemp(path.join(tmpdir(), "telemetry-jsonl-"));
+  t.after(() => rm(testDir, { recursive: true, force: true }));
 
   const sink = new JsonlTelemetrySink({
     telemetryDir: testDir,
@@ -111,9 +139,77 @@ test("JsonlTelemetrySink emits, rotates, and reads events", async () => {
   await rm(testDir, { recursive: true, force: true });
 });
 
-test("SqliteTelemetrySink or non-blocking fallback emits and reads events", async () => {
-  const testDir = path.join(process.cwd(), "tmp-test-telemetry-sqlite");
-  await rm(testDir, { recursive: true, force: true });
+test("JSONL preserves same-millisecond rotations across restarts and prunes oldest first", async (t) => {
+  const testDir = await mkdtemp(path.join(tmpdir(), "telemetry-rotation-"));
+  t.after(() => rm(testDir, { recursive: true, force: true }));
+  const events = await fixture("valid-v1.json");
+  const first = { ...events[0], eventId: "legacy" };
+  const timestamp = "2026-11-02T00:00:00.000Z";
+  // Include a pre-upgrade archive to verify compatibility with existing names.
+  await writeFile(
+    path.join(testDir, "events.jsonl.2026-11-02T00-00-00-000Z"),
+    `${JSON.stringify(first)}\n`,
+  );
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse(timestamp) });
+  const emitted = [first];
+  for (let index = 0; index < 14; index += 1) {
+    if (index === 12) t.mock.timers.setTime(Date.parse(timestamp) - 1_000);
+    // Reconstructing the sink rules out relying on an in-memory counter alone.
+    const sink = new JsonlTelemetrySink({
+      telemetryDir: testDir,
+      maxFileSizeBytes: 1,
+      rotationMaxFiles: 20,
+    });
+    const event = { ...events[0], eventId: `same-time-${index}` };
+    emitted.push(event);
+    await sink.emit(event);
+    assert.deepEqual(await sink.readEvents(), emitted);
+  }
+  const sink = new JsonlTelemetrySink({
+    telemetryDir: testDir,
+    maxFileSizeBytes: 1,
+    rotationMaxFiles: 2,
+  });
+  const last = { ...events[0], eventId: "last" };
+  await sink.emit(last);
+  assert.deepEqual(await sink.readEvents(), [...emitted.slice(-2), last]);
+});
+
+test("concurrent JSONL sinks retain every event during rotation", async (t) => {
+  const testDir = await mkdtemp(path.join(tmpdir(), "telemetry-concurrent-"));
+  t.after(() => rm(testDir, { recursive: true, force: true }));
+  const [template] = await fixture("valid-v1.json");
+  const config = {
+    telemetryDir: testDir,
+    maxFileSizeBytes: 1,
+    rotationMaxFiles: 100,
+  };
+  const sink = new JsonlTelemetrySink(config);
+  await sink.emit({ ...template, eventId: "seed" });
+  for (let batch = 0; batch < 4; batch += 1) {
+    await Promise.all(
+      [0, 1, 2].map((writer) =>
+        new JsonlTelemetrySink(config).emit({
+          ...template,
+          eventId: `${batch}-${writer}`,
+        }),
+      ),
+    );
+  }
+  assert.deepEqual(
+    (await sink.readEvents()).map((event) => event.eventId).sort(),
+    [
+      "seed",
+      ...Array.from({ length: 4 }, (_, batch) =>
+        [0, 1, 2].map((writer) => `${batch}-${writer}`),
+      ).flat(),
+    ].sort(),
+  );
+});
+
+test("SqliteTelemetrySink or non-blocking fallback emits and reads events", async (t) => {
+  const testDir = await mkdtemp(path.join(tmpdir(), "telemetry-sqlite-"));
+  t.after(() => rm(testDir, { recursive: true, force: true }));
 
   const sink = new SqliteTelemetrySink({
     telemetryDir: testDir,
@@ -158,5 +254,3 @@ test("generateLLMOpsReport aggregates metrics and produces required dashboard se
   assert.ok(report.gateAndExecutionFailures);
   assert.ok(report.tokenConsumption);
 });
-
-

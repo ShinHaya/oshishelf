@@ -16,7 +16,10 @@ import {
   selectExecutionMode,
   skillForRole,
 } from "../../scripts/issue-roles.mjs";
-import { VALID_MODES, determineEligibleModes } from "../../scripts/issue-modes.mjs";
+import {
+  VALID_MODES,
+  determineEligibleModes,
+} from "../../scripts/issue-modes.mjs";
 import { buildWorkerPrompt } from "../../scripts/issue-runtime-adapters/shared.mjs";
 
 const route = (agent, model) => ({
@@ -32,11 +35,21 @@ const route = (agent, model) => ({
 const program = (mode) => roleProgramForMode(mode);
 
 test("small low-risk Issues get direct-review, larger ones get plan-implement-review", () => {
-  assert.equal(selectExecutionMode({ size: "S", dependencies: [] }).mode, "direct-review");
-  assert.equal(selectExecutionMode({ size: "M", dependencies: [] }).mode, "direct-review");
-  assert.equal(selectExecutionMode({ size: "XL", dependencies: [] }).mode, "plan-implement-review");
   assert.equal(
-    selectExecutionMode({ size: "S", riskCategory: "high", dependencies: [] }).mode,
+    selectExecutionMode({ size: "S", dependencies: [] }).mode,
+    "direct-review",
+  );
+  assert.equal(
+    selectExecutionMode({ size: "M", dependencies: [] }).mode,
+    "direct-review",
+  );
+  assert.equal(
+    selectExecutionMode({ size: "XL", dependencies: [] }).mode,
+    "plan-implement-review",
+  );
+  assert.equal(
+    selectExecutionMode({ size: "S", riskCategory: "high", dependencies: [] })
+      .mode,
     "plan-implement-review",
   );
 });
@@ -47,7 +60,11 @@ test("every eligible mode set contains an implemented mode, so ranking never fal
   for (const size of sizes)
     for (const riskCategory of risks)
       for (const dependencyDepth of [0, 1, 2, 3, 5]) {
-        const eligible = determineEligibleModes({ size, riskCategory, dependencyDepth });
+        const eligible = determineEligibleModes({
+          size,
+          riskCategory,
+          dependencyDepth,
+        });
         assert.equal(
           eligible.includes("plan-implement-review"),
           true,
@@ -56,7 +73,10 @@ test("every eligible mode set contains an implemented mode, so ranking never fal
         const { mode } = selectExecutionMode({
           size,
           riskCategory,
-          dependencies: Array.from({ length: dependencyDepth }, (_, index) => index),
+          dependencies: Array.from(
+            { length: dependencyDepth },
+            (_, index) => index,
+          ),
         });
         assert.equal(VALID_MODES.includes(mode), true);
         assert.notEqual(mode, "parallel-analysis-implement-review");
@@ -65,7 +85,11 @@ test("every eligible mode set contains an implemented mode, so ranking never fal
 
 test("role programs run the reviewer last, after the implementer", () => {
   assert.deepEqual(program("direct-review"), ["implementer", "reviewer"]);
-  assert.deepEqual(program("plan-implement-review"), ["planner", "implementer", "reviewer"]);
+  assert.deepEqual(program("plan-implement-review"), [
+    "planner",
+    "implementer",
+    "reviewer",
+  ]);
   assert.throws(
     () => program("parallel-analysis-implement-review"),
     /unsupported-execution-mode/,
@@ -74,7 +98,10 @@ test("role programs run the reviewer last, after the implementer", () => {
 
 test("implementer and reviewer get distinct routes when the pool allows it", () => {
   const pool = [route("Claude", "sonnet"), route("Grok", "grok-4")];
-  const { routes, degraded } = assignRoleRoutes(pool, program("plan-implement-review"));
+  const { routes, degraded } = assignRoleRoutes(
+    pool,
+    program("plan-implement-review"),
+  );
   assert.equal(degraded, undefined);
   assert.notEqual(routes.implementer.agent, routes.reviewer.agent);
   // The planner takes the non-implementer route, so plan and implementation
@@ -90,9 +117,18 @@ test("a single verified route degrades to a shared route with a recorded reason"
 });
 
 test("the first role creates the worktree and later roles reuse it", () => {
-  assert.equal(skillForRole(ROLES.IMPLEMENTER, { hasWorktree: false }), "issue-implementation");
-  assert.equal(skillForRole(ROLES.IMPLEMENTER, { hasWorktree: true }), "handoff-issue");
-  assert.equal(skillForRole(ROLES.PLANNER, { hasWorktree: false }), "issue-implementation");
+  assert.equal(
+    skillForRole(ROLES.IMPLEMENTER, { hasWorktree: false }),
+    "issue-implementation",
+  );
+  assert.equal(
+    skillForRole(ROLES.IMPLEMENTER, { hasWorktree: true }),
+    "handoff-issue",
+  );
+  assert.equal(
+    skillForRole(ROLES.PLANNER, { hasWorktree: false }),
+    "issue-implementation",
+  );
   // A reviewer runs no skill at all: both implementation skills commit, which
   // a read-only review must not do.
   assert.equal(skillForRole(ROLES.REVIEWER, { hasWorktree: true }), null);
@@ -102,11 +138,25 @@ test("the first role creates the worktree and later roles reuse it", () => {
 test("medium risk buys a planner instead of ranking down to the cheapest mode", () => {
   // determineEligibleModes keeps direct-review eligible here, so an
   // unconditional preference would silently skip planning.
-  const eligible = determineEligibleModes({ size: "M", riskCategory: "medium", dependencyDepth: 0 });
+  const eligible = determineEligibleModes({
+    size: "M",
+    riskCategory: "medium",
+    dependencyDepth: 0,
+  });
   assert.equal(eligible.includes("direct-review"), true);
-  assert.equal(selectExecutionMode({ size: "M", riskCategory: "medium", dependencies: [] }).mode, "plan-implement-review");
-  assert.deepEqual(modePreferencesFor("low"), ["direct-review", "plan-implement-review"]);
-  assert.deepEqual(modePreferencesFor("critical"), ["plan-implement-review", "direct-review"]);
+  assert.equal(
+    selectExecutionMode({ size: "M", riskCategory: "medium", dependencies: [] })
+      .mode,
+    "plan-implement-review",
+  );
+  assert.deepEqual(modePreferencesFor("low"), [
+    "direct-review",
+    "plan-implement-review",
+  ]);
+  assert.deepEqual(modePreferencesFor("critical"), [
+    "plan-implement-review",
+    "direct-review",
+  ]);
 });
 
 test("counterpart roles pair the implementer with the reviewer", () => {
@@ -129,10 +179,15 @@ function newRoleState(mode = "direct-review") {
 }
 
 test("a passing review ends the program and opens the milestone gate", () => {
-  const afterImplement = advanceRoleProgram(newRoleState(), { role: "implementer" });
+  const afterImplement = advanceRoleProgram(newRoleState(), {
+    role: "implementer",
+  });
   assert.equal(afterImplement.index, 1);
   assert.equal(afterImplement.status, "active");
-  const afterReview = advanceRoleProgram(afterImplement, { role: "reviewer", verdict: "PASS" });
+  const afterReview = advanceRoleProgram(afterImplement, {
+    role: "reviewer",
+    verdict: "PASS",
+  });
   assert.equal(afterReview.status, "awaiting-milestone");
   assert.equal(afterReview.reviewPasses, 1);
 });
@@ -140,7 +195,10 @@ test("a passing review ends the program and opens the milestone gate", () => {
 test("NEEDS_REVISION buys one fix pass that is not re-reviewed (one review per Issue)", () => {
   assert.equal(MAX_REVIEW_PASSES, 1);
   let state = advanceRoleProgram(newRoleState(), { role: "implementer" });
-  state = advanceRoleProgram(state, { role: "reviewer", verdict: "NEEDS_REVISION" });
+  state = advanceRoleProgram(state, {
+    role: "reviewer",
+    verdict: "NEEDS_REVISION",
+  });
   assert.equal(state.status, "active");
   assert.equal(state.program[state.index], "implementer");
   assert.equal(state.fixCycles, 1);
@@ -149,7 +207,10 @@ test("NEEDS_REVISION buys one fix pass that is not re-reviewed (one review per I
   state = advanceRoleProgram(state, { role: "implementer" });
   assert.equal(state.status, "awaiting-milestone");
   assert.equal(state.reviewPasses, 1, "the fix pass is not reviewed again");
-  assert.throws(() => advanceRoleProgram(state, { role: "implementer" }), /role-mismatch/);
+  assert.throws(
+    () => advanceRoleProgram(state, { role: "implementer" }),
+    /role-mismatch/,
+  );
 });
 
 test("REJECTED blocks immediately without spending a fix pass", () => {
@@ -161,10 +222,16 @@ test("REJECTED blocks immediately without spending a fix pass", () => {
 });
 
 test("role programs reject out-of-order roles and unknown verdicts", () => {
-  assert.throws(() => advanceRoleProgram(newRoleState(), { role: "reviewer" }), /role-mismatch/);
-  const afterImplement = advanceRoleProgram(newRoleState(), { role: "implementer" });
   assert.throws(
-    () => advanceRoleProgram(afterImplement, { role: "reviewer", verdict: "LGTM" }),
+    () => advanceRoleProgram(newRoleState(), { role: "reviewer" }),
+    /role-mismatch/,
+  );
+  const afterImplement = advanceRoleProgram(newRoleState(), {
+    role: "implementer",
+  });
+  assert.throws(
+    () =>
+      advanceRoleProgram(afterImplement, { role: "reviewer", verdict: "LGTM" }),
     /invalid-review-verdict/,
   );
 });
@@ -188,7 +255,10 @@ test("dispatch payloads carry only closed, non-sensitive fields", () => {
     "role",
     "skill",
   ]);
-  assert.throws(() => buildRoleDispatchPayload({ role: "auditor", issueNumber: 1 }), /invalid-role/);
+  assert.throws(
+    () => buildRoleDispatchPayload({ role: "auditor", issueNumber: 1 }),
+    /invalid-role/,
+  );
 
   // A reviewer has no skill, so the key is omitted rather than sent as null.
   const reviewerPayload = buildRoleDispatchPayload({
@@ -204,8 +274,13 @@ test("dispatch payloads carry only closed, non-sensitive fields", () => {
 
 test("any disallowed key is rejected at any depth", () => {
   for (const key of DISALLOWED_PAYLOAD_KEYS)
-    assert.throws(() => assertNoDisallowedKeys({ outer: [{ [key]: "x" }] }), /disallowed-payload-key/);
-  assert.doesNotThrow(() => assertNoDisallowedKeys({ role: "reviewer", issueNumber: 1 }));
+    assert.throws(
+      () => assertNoDisallowedKeys({ outer: [{ [key]: "x" }] }),
+      /disallowed-payload-key/,
+    );
+  assert.doesNotThrow(() =>
+    assertNoDisallowedKeys({ role: "reviewer", issueNumber: 1 }),
+  );
 });
 
 test("the reviewer prompt withholds the implementer's reasoning and forbids edits", () => {
@@ -236,7 +311,10 @@ test("the single-worker prompt is unchanged when no role is assigned", () => {
     releasePolicy: "merged",
     nextMilestone: "pr-created",
   });
-  assert.match(prompt, /^Implement exactly one GitHub Issue using the repository issue-implementation/);
+  assert.match(
+    prompt,
+    /^Implement exactly one GitHub Issue using the repository issue-implementation/,
+  );
   assert.equal(prompt.includes("Role:"), false);
 });
 
@@ -244,14 +322,25 @@ test("dependency depth 2 selects plan-implement-review even at low risk", () => 
   // determineEligibleModes keeps direct-review eligible at depth exactly 2,
   // so the preference has to consider depth or the documented
   // "depth >= 2 -> plan-implement-review" rule would be contradicted.
-  const eligible = determineEligibleModes({ size: "M", riskCategory: "low", dependencyDepth: 2 });
+  const eligible = determineEligibleModes({
+    size: "M",
+    riskCategory: "low",
+    dependencyDepth: 2,
+  });
   assert.equal(eligible.includes("direct-review"), true);
-  const depth = (n) => ({ size: "M", riskCategory: "low", dependencies: Array.from({ length: n }, (_, i) => i) });
+  const depth = (n) => ({
+    size: "M",
+    riskCategory: "low",
+    dependencies: Array.from({ length: n }, (_, i) => i),
+  });
   assert.equal(selectExecutionMode(depth(0)).mode, "direct-review");
   assert.equal(selectExecutionMode(depth(1)).mode, "direct-review");
   assert.equal(selectExecutionMode(depth(2)).mode, "plan-implement-review");
   assert.equal(selectExecutionMode(depth(3)).mode, "plan-implement-review");
-  assert.deepEqual(modePreferencesFor("low", 2), ["plan-implement-review", "direct-review"]);
+  assert.deepEqual(modePreferencesFor("low", 2), [
+    "plan-implement-review",
+    "direct-review",
+  ]);
 });
 
 test("the planner prefers a route distinct from the implementer's", () => {
@@ -292,7 +381,10 @@ test("the reviewer prompt names the pull request comment as the findings destina
     reviewPass: 2,
   });
   assert.match(prompt, /gh pr comment/);
-  assert.match(prompt, /role=reviewer pass=2 verdict=<PASS\|NEEDS_REVISION\|REJECTED>/);
+  assert.match(
+    prompt,
+    /role=reviewer pass=2 verdict=<PASS\|NEEDS_REVISION\|REJECTED>/,
+  );
   // GitHub's review feature cannot express the verdict: one account owns both
   // the PR and the review.
   assert.match(prompt, /do not use `gh pr review`/);
@@ -329,6 +421,54 @@ test("the first implementer pass still creates the pull request", () => {
   assert.equal(prompt.includes("fix-cycle"), false);
 });
 
+// The orchestrator owns the one review pass per Issue. An implementer that
+// also followed the skill's own reviewer step would review the Issue twice.
+const SKIP_SKILL_REVIEW = /Do NOT dispatch a reviewer role/;
+
+test("a role-program implementer is told to skip the skill's reviewer step", () => {
+  for (const { skill, fixCycle } of [
+    { skill: "issue-implementation", fixCycle: undefined },
+    { skill: "handoff-issue", fixCycle: undefined },
+    { skill: "handoff-issue", fixCycle: 1 },
+  ]) {
+    const prompt = buildWorkerPrompt({
+      issueNumber: 482,
+      agent: "Claude",
+      model: "sonnet",
+      releasePolicy: "merged",
+      nextMilestone: "pr-created",
+      role: "implementer",
+      skill,
+      fixCycle,
+    });
+    assert.match(prompt, SKIP_SKILL_REVIEW, `${skill} fixCycle=${fixCycle}`);
+    assert.match(prompt, /orchestrator runs the review as a separate role/);
+  }
+});
+
+test("single-worker and non-implementer prompts keep the skill's own review", () => {
+  const singleWorker = buildWorkerPrompt({
+    issueNumber: 482,
+    agent: "Codex",
+    model: "gpt-5",
+    releasePolicy: "merged",
+    nextMilestone: "pr-created",
+  });
+  assert.doesNotMatch(singleWorker, SKIP_SKILL_REVIEW);
+  for (const role of ["planner", "reviewer"]) {
+    const prompt = buildWorkerPrompt({
+      issueNumber: 482,
+      agent: "Codex",
+      model: "gpt-5",
+      releasePolicy: "merged",
+      nextMilestone: "pr-created",
+      role,
+      skill: "issue-implementation",
+    });
+    assert.doesNotMatch(prompt, SKIP_SKILL_REVIEW, role);
+  }
+});
+
 test("fixCycle reaches the dispatch payload only for a fixing implementer", () => {
   const base = {
     issueNumber: 482,
@@ -337,21 +477,30 @@ test("fixCycle reaches the dispatch payload only for a fixing implementer", () =
     releasePolicy: "pr-created",
     nextMilestone: "pr-created",
   };
-  assert.equal(buildRoleDispatchPayload({ ...base, role: "implementer", fixCycle: 2 }).fixCycle, 2);
   assert.equal(
-    Object.hasOwn(buildRoleDispatchPayload({ ...base, role: "implementer", fixCycle: 0 }), "fixCycle"),
+    buildRoleDispatchPayload({ ...base, role: "implementer", fixCycle: 2 })
+      .fixCycle,
+    2,
+  );
+  assert.equal(
+    Object.hasOwn(
+      buildRoleDispatchPayload({ ...base, role: "implementer", fixCycle: 0 }),
+      "fixCycle",
+    ),
     false,
   );
   assert.equal(
-    Object.hasOwn(buildRoleDispatchPayload({ ...base, role: "reviewer", fixCycle: 2 }), "fixCycle"),
+    Object.hasOwn(
+      buildRoleDispatchPayload({ ...base, role: "reviewer", fixCycle: 2 }),
+      "fixCycle",
+    ),
     false,
   );
 });
 
 test("the integration gate gets its own single reopen, separate from review passes", async () => {
-  const { reopenRoleProgramForFix, MAX_GATE_REOPENS } = await import(
-    "../../scripts/issue-roles.mjs"
-  );
+  const { reopenRoleProgramForFix, MAX_GATE_REOPENS } =
+    await import("../../scripts/issue-roles.mjs");
   assert.equal(MAX_GATE_REOPENS, 1);
 
   let state = advanceRoleProgram(newRoleState(), { role: "implementer" });
@@ -377,12 +526,20 @@ test("the integration gate gets its own single reopen, separate from review pass
 });
 
 test("a review fix pass does not spend the gate reopen; the gate's fix is not re-reviewed either", async () => {
-  const { reopenRoleProgramForFix } = await import("../../scripts/issue-roles.mjs");
+  const { reopenRoleProgramForFix } =
+    await import("../../scripts/issue-roles.mjs");
   let state = advanceRoleProgram(newRoleState(), { role: "implementer" });
-  state = advanceRoleProgram(state, { role: "reviewer", verdict: "NEEDS_REVISION" });
+  state = advanceRoleProgram(state, {
+    role: "reviewer",
+    verdict: "NEEDS_REVISION",
+  });
   state = advanceRoleProgram(state, { role: "implementer" });
   assert.equal(state.status, "awaiting-milestone");
-  assert.equal(state.gateReopens ?? 0, 0, "the gate budget is untouched by review cycles");
+  assert.equal(
+    state.gateReopens ?? 0,
+    0,
+    "the gate budget is untouched by review cycles",
+  );
 
   const reopened = reopenRoleProgramForFix(state, "integration-gate-rejected");
   assert.equal(reopened.status, "active");

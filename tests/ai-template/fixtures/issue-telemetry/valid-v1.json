@@ -35,9 +35,15 @@
       "tokens": {
         "input": { "availability": "exact", "value": 100 },
         "output": { "availability": "estimate", "value": 40 },
-        "total": { "availability": "unavailable", "reasonCode": "provider_not_exposed" }
+        "total": {
+          "availability": "unavailable",
+          "reasonCode": "provider_not_exposed"
+        }
       },
-      "costUsd": { "availability": "unavailable", "reasonCode": "provider_not_exposed" },
+      "costUsd": {
+        "availability": "unavailable",
+        "reasonCode": "provider_not_exposed"
+      },
       "exitClassification": "success"
     }
   },
