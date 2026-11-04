@@ -1,5 +1,10 @@
 #!/usr/bin/env node
-import { findRuntime } from "./ai-template/registry.mjs";
+import {
+  findRuntime,
+  loadRuntimeRegistry,
+  resolvePermission,
+} from "./ai-template/registry.mjs";
+import { evaluateRoute } from "./enterprise-route-policy.mjs";
 /**
  * Route benchmark for RouteEvidence.
  *
@@ -22,6 +27,7 @@ import {
 } from "./issue-triage-contract.mjs";
 import {
   runProcess,
+  selectorHasPermissionArgs,
   splitSelector,
   reportedModels,
   writeJsonAtomic,
@@ -59,7 +65,11 @@ const LOCAL_CODE = [
     "export function sum(xs) { let t = 0; for (let i = 1; i < xs.length; i++) t += xs[i]; return t; }",
     "sum([1, 2, 3]) === 6 && sum([]) === 0",
   ],
-  ["isEven", "export const isEven = (n) => n % 2 === 1;", "isEven(4) && !isEven(3) && isEven(0)"],
+  [
+    "isEven",
+    "export const isEven = (n) => n % 2 === 1;",
+    "isEven(4) && !isEven(3) && isEven(0)",
+  ],
   [
     "capitalize",
     "export const capitalize = (s) => s.toLowerCase();",
@@ -75,7 +85,11 @@ const LOCAL_CODE = [
     "export const unique = (xs) => [...new Set(xs)].sort();",
     "JSON.stringify(unique([3, 1, 3, 2])) === '[3,1,2]'",
   ],
-  ["maxOf", "export const maxOf = (xs) => Math.max(...xs);", "maxOf([2, 9, 4]) === 9 && maxOf([]) === null"],
+  [
+    "maxOf",
+    "export const maxOf = (xs) => Math.max(...xs);",
+    "maxOf([2, 9, 4]) === 9 && maxOf([]) === null",
+  ],
   [
     "reverseWords",
     'export const reverseWords = (s) => s.split("").reverse().join("");',
@@ -95,16 +109,23 @@ const LOCAL_CODE = [
 // Each instruction states every behavior its hidden check asserts, so the pass
 // rate measures the fix rather than luck at guessing the check.
 const LOCAL_CODE_SPECS = {
-  clamp: "clamp(v, lo, hi) must return v limited to the inclusive range [lo, hi].",
+  clamp:
+    "clamp(v, lo, hi) must return v limited to the inclusive range [lo, hi].",
   sum: "sum(xs) must return the sum of every number in xs, and 0 for an empty array.",
-  isEven: "isEven(n) must return true for even integers, including 0, and false for odd ones.",
+  isEven:
+    "isEven(n) must return true for even integers, including 0, and false for odd ones.",
   capitalize:
     "capitalize(s) must upper-case the first character and keep the rest unchanged; an empty string stays empty.",
-  range: "range(n) must return [0, 1, ..., n - 1]; range(0) returns an empty array.",
-  unique: "unique(xs) must remove duplicates while keeping the order of first occurrence.",
-  maxOf: "maxOf(xs) must return the largest number, or null for an empty array.",
-  reverseWords: "reverseWords(s) must reverse the order of the space-separated words, not the characters.",
-  countVowels: "countVowels(s) must count the vowels a, e, i, o and u in either case.",
+  range:
+    "range(n) must return [0, 1, ..., n - 1]; range(0) returns an empty array.",
+  unique:
+    "unique(xs) must remove duplicates while keeping the order of first occurrence.",
+  maxOf:
+    "maxOf(xs) must return the largest number, or null for an empty array.",
+  reverseWords:
+    "reverseWords(s) must reverse the order of the space-separated words, not the characters.",
+  countVowels:
+    "countVowels(s) must count the vowels a, e, i, o and u in either case.",
   padLeft:
     "padLeft(s, n) must left-pad s with spaces to length n and return s unchanged when it is already at least n long.",
 };
@@ -121,19 +142,29 @@ const CROSS = [
   ["label", "displayLabel", "Fixture"],
 ];
 const REDACT = ["password", "token", "cardNumber", "cvv", "apiKey"];
-const CONTAIN = ["resolveInside", "safeJoin", "withinRoot", "openTarget", "mapUpload"];
+const CONTAIN = [
+  "resolveInside",
+  "safeJoin",
+  "withinRoot",
+  "openTarget",
+  "mapUpload",
+];
 
-const assertScript = (imports, condition) => `${imports}\nif (!(${condition})) process.exit(1);\n`;
+const assertScript = (imports, condition) =>
+  `${imports}\nif (!(${condition})) process.exit(1);\n`;
 
 /** Deterministic task list pinned by BENCHMARK_VERSION: ten tasks per kind. */
 export function buildBenchmarkTasks() {
   const tasks = [];
   DOCS.forEach(([wrong, right], i) => {
-    const line = (word) => `The fixture service will ${word} the request in step ${i + 1}.`;
+    const line = (word) =>
+      `The fixture service will ${word} the request in step ${i + 1}.`;
     tasks.push({
       id: `docs-${i + 1}`,
       kind: "docs",
-      files: { "README.md": `# Fixture ${i + 1}\n\n${line(wrong)}\nKeep this line unchanged.\n` },
+      files: {
+        "README.md": `# Fixture ${i + 1}\n\n${line(wrong)}\nKeep this line unchanged.\n`,
+      },
       instruction: `In README.md, fix the misspelled word "${wrong}" so it reads "${right}". Change nothing else.`,
       check: {
         type: "file-equals",
@@ -148,7 +179,10 @@ export function buildBenchmarkTasks() {
       kind: "local-code",
       files: { "lib.mjs": `${source}\n` },
       instruction: `lib.mjs exports a buggy function \`${name}\`. Fix it: ${LOCAL_CODE_SPECS[name]} Keep the export name and signature.`,
-      check: { type: "node-assert", script: assertScript(`import { ${name} } from "./lib.mjs";`, condition) },
+      check: {
+        type: "node-assert",
+        script: assertScript(`import { ${name} } from "./lib.mjs";`, condition),
+      },
     });
   });
   CROSS.forEach(([from, to, value], i) => {
@@ -174,7 +208,10 @@ export function buildBenchmarkTasks() {
     tasks.push({
       id: `security-${i + 1}`,
       kind: "security",
-      files: { "logger.mjs": "export const formatEvent = (event) => JSON.stringify(event);\n" },
+      files: {
+        "logger.mjs":
+          "export const formatEvent = (event) => JSON.stringify(event);\n",
+      },
       instruction: `formatEvent in logger.mjs leaks the \`${field}\` field into logs. Replace that field's value with "[REDACTED]" in the output and keep every other field.`,
       check: {
         type: "node-assert",
@@ -215,7 +252,10 @@ export function buildBenchmarkTasks() {
 export async function checkBenchmarkTask(dir, task, { run = runProcess } = {}) {
   if (task.check.type === "file-equals") {
     try {
-      return (await fs.readFile(path.join(dir, task.check.file), "utf8")) === task.check.content;
+      return (
+        (await fs.readFile(path.join(dir, task.check.file), "utf8")) ===
+        task.check.content
+      );
     } catch {
       return false;
     }
@@ -248,29 +288,70 @@ const routeModel = (route) => route.requestedModel ?? route.model;
 export async function runBenchmarkTask(
   route,
   task,
-  { run = runProcess, timeoutMs = DEFAULT_TASK_TIMEOUT_MS, env = process.env, clock = Date.now, cwd = process.cwd() } = {},
+  {
+    run = runProcess,
+    timeoutMs = DEFAULT_TASK_TIMEOUT_MS,
+    env = process.env,
+    clock = Date.now,
+    cwd = process.cwd(),
+  } = {},
 ) {
+  // Enterprise mode: a benchmark run is outbound model work, so the route must be attested for
+  // the triage purpose before any sandbox or process exists. Mode off is a no-op.
+  if (
+    !evaluateRoute(
+      {
+        runtime: route.agent,
+        requestedModel: routeModel(route),
+        model: route.model,
+        purpose: "triage",
+      },
+      { root: cwd },
+    ).allow
+  )
+    throw new Error("route-benchmark-enterprise-denied");
   const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), "route-bench-"));
   try {
     for (const [name, content] of Object.entries(task.files))
       await fs.writeFile(path.join(sandbox, name), content);
     const tokens = splitSelector(route.selector);
+    if (selectorHasPermissionArgs(route, cwd))
+      throw new Error("route-permission-args-forbidden");
+    const runtime = findRuntime(route.agent, cwd, { enabledOnly: true });
+    // Benchmark tasks edit files, so they run with the implementer's argv like the probe.
+    const permissionArgs = runtime
+      ? resolvePermission(loadRuntimeRegistry(cwd), runtime).args
+      : [];
     const prompt = `${task.instruction}\nWork only on the files in the current directory. Do not ask questions. Do not explain your steps.`;
     const workerEnv = { ...env };
     delete workerEnv.TYPESAFE_API_KEY;
     const started = clock();
-    const result = await run(tokens[0], [...tokens.slice(1), ...(findRuntime(route.agent, cwd, { enabledOnly: true })?.probeArgs ?? []), prompt], {
-      timeoutMs,
-      env: workerEnv,
-      cwd: sandbox,
-    });
+    const result = await run(
+      tokens[0],
+      [
+        ...tokens.slice(1),
+        ...permissionArgs,
+        ...(runtime?.probeArgs ?? []),
+        prompt,
+      ],
+      {
+        timeoutMs,
+        env: workerEnv,
+        cwd: sandbox,
+      },
+    );
     const durationMs = Math.max(0, Math.round(clock() - started));
     if (reportedModels(result).some((model) => model !== route.model))
       return { kind: task.kind, modelMismatch: true };
     // A non-zero exit or timeout is a CLI/quota/session failure, not a wrong fix:
     // counting it as failed would rank the route low for reasons unrelated to quality.
-    if (result.timedOut || result.code !== 0) return { kind: task.kind, infrastructureFailure: true };
-    return { kind: task.kind, passed: await checkBenchmarkTask(sandbox, task, { run }), durationMs };
+    if (result.timedOut || result.code !== 0)
+      return { kind: task.kind, infrastructureFailure: true };
+    return {
+      kind: task.kind,
+      passed: await checkBenchmarkTask(sandbox, task, { run }),
+      durationMs,
+    };
   } finally {
     await fs.rm(sandbox, { recursive: true, force: true }).catch(() => {});
   }
@@ -279,7 +360,9 @@ export async function runBenchmarkTask(
 const median = (values) => {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+  return sorted.length % 2
+    ? sorted[mid]
+    : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
 };
 
 /** Aggregate closed task results into a validated RouteEvidence record. */
@@ -330,7 +413,10 @@ export async function benchmarkRoute(route, tasks, options = {}) {
  * triage child would actually receive (same 30-day, pool, sample and version
  * filters). Abstains on <2 comparable candidates or a tie.
  */
-export function rankRouteEvidence(evidence, { routes, kinds, now = Date.now() }) {
+export function rankRouteEvidence(
+  evidence,
+  { routes, kinds, now = Date.now() },
+) {
   if (!kinds.length || !kinds.every((kind) => TASK_KINDS.includes(kind)))
     return { choice: "abstain", reason: "unknown-kind" };
   const input = normalizeTriageInput({
@@ -344,20 +430,34 @@ export function rankRouteEvidence(evidence, { routes, kinds, now = Date.now() })
   const usable = triageContext(input, now).evidence;
   const scored = usable
     .map((record) => {
-      const relevant = kinds.map((kind) => record.tasks.find((task) => task.kind === kind));
-      if (relevant.some((task) => !task || task.samples < SAMPLES_PER_KIND)) return null;
+      const relevant = kinds.map((kind) =>
+        record.tasks.find((task) => task.kind === kind),
+      );
+      if (relevant.some((task) => !task || task.samples < SAMPLES_PER_KIND))
+        return null;
       return {
         route: { agent: record.agent, model: record.model },
-        passRate: relevant.reduce((s, t) => s + t.passed / t.samples, 0) / relevant.length,
-        durationMs: relevant.reduce((s, t) => s + t.medianDurationMs, 0) / relevant.length,
+        passRate:
+          relevant.reduce((s, t) => s + t.passed / t.samples, 0) /
+          relevant.length,
+        durationMs:
+          relevant.reduce((s, t) => s + t.medianDurationMs, 0) /
+          relevant.length,
       };
     })
     .filter(Boolean)
     .sort((a, b) => b.passRate - a.passRate || a.durationMs - b.durationMs);
   if (scored.length < 2)
-    return { choice: "abstain", reason: "fewer-than-two-comparable", candidates: scored };
+    return {
+      choice: "abstain",
+      reason: "fewer-than-two-comparable",
+      candidates: scored,
+    };
   const [first, second] = scored;
-  if (first.passRate === second.passRate && first.durationMs === second.durationMs)
+  if (
+    first.passRate === second.passRate &&
+    first.durationMs === second.durationMs
+  )
     return { choice: "abstain", reason: "tie", candidates: scored };
   return {
     choice: first.route,
@@ -382,7 +482,8 @@ export function parseBenchmarkArgs(argv) {
     const arg = argv[i];
     const value = () => {
       const next = argv[++i];
-      if (next === undefined) throw new Error(`route-benchmark-missing-value:${arg}`);
+      if (next === undefined)
+        throw new Error(`route-benchmark-missing-value:${arg}`);
       return next;
     };
     if (arg === "--live") options.live = true;
@@ -408,7 +509,8 @@ async function main(argv) {
     ...(options.parentAgent ? { parentAgent: options.parentAgent } : {}),
   });
   const routes = discovery.workerRoutes.filter(
-    (route) => !options.models.length || options.models.includes(routeModel(route)),
+    (route) =>
+      !options.models.length || options.models.includes(routeModel(route)),
   );
   if (!routes.length) throw new Error("route-benchmark-no-verified-route");
   const tasks = buildBenchmarkTasks();
@@ -416,13 +518,27 @@ async function main(argv) {
   const outcomes = [];
   for (const route of routes) {
     const evaluatedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-    const measured = await benchmarkRoute(route, tasks, { timeoutMs: options.timeoutMs });
-    outcomes.push({ agent: route.agent, model: routeModel(route), status: measured.status });
+    const measured = await benchmarkRoute(route, tasks, {
+      timeoutMs: options.timeoutMs,
+    });
+    outcomes.push({
+      agent: route.agent,
+      model: routeModel(route),
+      status: measured.status,
+    });
     if (measured.status !== "measured") continue;
     const version =
-      discovery.cli?.[route.agent]?.version ?? discovery.cli?.[route.agent.toLowerCase()]?.version;
-    const profileVersion = /^[\w .()+-]{1,100}$/.test(version ?? "") ? version : "unknown";
-    evidence.push(buildRouteEvidence(route, measured.results, { profileVersion, evaluatedAt }));
+      discovery.cli?.[route.agent]?.version ??
+      discovery.cli?.[route.agent.toLowerCase()]?.version;
+    const profileVersion = /^[\w .()+-]{1,100}$/.test(version ?? "")
+      ? version
+      : "unknown";
+    evidence.push(
+      buildRouteEvidence(route, measured.results, {
+        profileVersion,
+        evaluatedAt,
+      }),
+    );
   }
   await writeJsonAtomic(options.output, evidence);
   process.stdout.write(
@@ -430,7 +546,10 @@ async function main(argv) {
   );
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   main(process.argv.slice(2)).catch((error) => {
     const code = /^route-benchmark-[\w:-]+$/.test(error?.message ?? "")
       ? error.message

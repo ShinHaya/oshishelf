@@ -1,5 +1,6 @@
 import test from "node:test";
 import { freshCheckoutEnv } from "./helpers/fresh-checkout.mjs";
+import { isolatedScriptRoot } from "./helpers/script-root.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,7 +16,10 @@ import {
   createDefaultDeps,
   parseGraphCliArgs,
 } from "../../scripts/issue-graph.mjs";
-import { FileCheckpointSaver, triageRunId } from "../../scripts/issue-graph-checkpointer.mjs";
+import {
+  FileCheckpointSaver,
+  triageRunId,
+} from "../../scripts/issue-graph-checkpointer.mjs";
 import {
   fallbackResult,
   normalizeTriageInput,
@@ -116,17 +120,31 @@ function makeInput({ items, capabilities = defaultCapabilities, config = {} }) {
   };
 }
 
-function makeRun({ deps = makeDeps(), checkpointer = new MemorySaver(), threadId = "t" } = {}) {
+function makeRun({
+  deps = makeDeps(),
+  checkpointer = new MemorySaver(),
+  threadId = "t",
+} = {}) {
   const graph = buildOrchestrationGraph({ checkpointer });
-  const config = { recursionLimit: 100, configurable: { thread_id: threadId, deps } };
+  const config = {
+    recursionLimit: 100,
+    configurable: { thread_id: threadId, deps },
+  };
   return {
     deps,
     graph,
     config,
     // any: graph state and interrupt payloads are untyped channels
-    invoke: (input) => /** @type {Promise<Record<string, any>>} */ (graph.invoke(input, config)),
-    resume: (value) => /** @type {Promise<Record<string, any>>} */ (graph.invoke(new Command({ resume: value }), config)),
-    state: async () => /** @type {Record<string, any>} */ ((await graph.getState(config)).values),
+    invoke: (input) =>
+      /** @type {Promise<Record<string, any>>} */ (graph.invoke(input, config)),
+    resume: (value) =>
+      /** @type {Promise<Record<string, any>>} */ (
+        graph.invoke(new Command({ resume: value }), config)
+      ),
+    state: async () =>
+      /** @type {Record<string, any>} */ (
+        (await graph.getState(config)).values
+      ),
   };
 }
 
@@ -134,46 +152,87 @@ const shadowConfig = { mode: "shadow", model: "jev-1.13.0", maxRequests: 20 };
 const revision = { updatedAt: "2026-07-21T00:00:00.000Z" };
 function shadowRecommendation(input) {
   const choice = (selected, options) => ({
-    type: "choice", choice: selected, confidence: 0.9,
-    probabilities: Object.fromEntries(options.map((option) => [option, option === selected ? 1 : 0])),
+    type: "choice",
+    choice: selected,
+    confidence: 0.9,
+    probabilities: Object.fromEntries(
+      options.map((option) => [option, option === selected ? 1 : 0]),
+    ),
   });
-  return parseTriageResponse({ model: input.model, answers: {
-    risk: choice("high", ["low", "medium", "high", "critical"]),
-    size: choice("XL", ["XS", "S", "M", "L", "XL"]),
-  } }, input, triageContext(input));
+  return parseTriageResponse(
+    {
+      model: input.model,
+      answers: {
+        risk: choice("high", ["low", "medium", "high", "critical"]),
+        size: choice("XL", ["XS", "S", "M", "L", "XL"]),
+      },
+    },
+    input,
+    triageContext(input),
+  );
 }
 
 test("shadow triage displays a closed recommendation without changing mode or route", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "graph-shadow-"));
   try {
-  let requests = 0;
-  const deps = makeDeps({
-    refreshTriageRoutes: async () => ({ capabilities: defaultCapabilities }),
-    fetchTriageRevision: async () => revision,
-    triageEvidence: async () => [],
-    triageBudget: () => ({ runId: "t", reserved: requests, providerUnavailable: false }),
-    runTriage: async (input) => { requests += 1; return { result: { ...shadowRecommendation(input), secret: "DO_NOT_STORE" } }; },
-    verifyTriageRoute: async () => ({ ok: true }),
-  });
-  const checkpointFile = path.join(directory, "run.json");
-  const run = makeRun({ deps, checkpointer: await FileCheckpointSaver.load(checkpointFile) });
-  const paused = await run.invoke(makeInput({ items: [item(1)], config: {
-    triage: shadowConfig, autoAssign: false, singleWorker: false,
-  } }));
-  assert.equal(isInterrupted(paused), true);
-  assert.equal(requests, 1);
-  const issue = paused.__interrupt__[0].value.assign.issues[0];
-  assert.equal(issue.shadowTriage.risk.choice, "high");
-  assert.equal(issue.legacyMode, "direct-review");
-  assert.equal(issue.executionMode, "direct-review");
-  const state = await run.state();
-  assert.equal(JSON.stringify(state).includes("DO_NOT_STORE"), false);
-  assert.equal((await readFile(checkpointFile, "utf8")).includes("DO_NOT_STORE"), false);
-  await run.resume({ assignments: [{ number: 1, agent: "Claude", model: "sonnet" }] });
-  assert.equal(requests, 1);
-  assert.equal(deps.dispatched[0].route.agent, "Claude");
-  assert.equal(JSON.stringify(deps.dispatched[0]).includes("DO_NOT_STORE"), false);
-  assert.deepEqual((await run.state()).roleStates[0].program, ["implementer", "reviewer"]);
+    let requests = 0;
+    const deps = makeDeps({
+      refreshTriageRoutes: async () => ({ capabilities: defaultCapabilities }),
+      fetchTriageRevision: async () => revision,
+      triageEvidence: async () => [],
+      triageBudget: () => ({
+        runId: "t",
+        reserved: requests,
+        providerUnavailable: false,
+      }),
+      runTriage: async (input) => {
+        requests += 1;
+        return {
+          result: { ...shadowRecommendation(input), secret: "DO_NOT_STORE" },
+        };
+      },
+      verifyTriageRoute: async () => ({ ok: true }),
+    });
+    const checkpointFile = path.join(directory, "run.json");
+    const run = makeRun({
+      deps,
+      checkpointer: await FileCheckpointSaver.load(checkpointFile),
+    });
+    const paused = await run.invoke(
+      makeInput({
+        items: [item(1)],
+        config: {
+          triage: shadowConfig,
+          autoAssign: false,
+          singleWorker: false,
+        },
+      }),
+    );
+    assert.equal(isInterrupted(paused), true);
+    assert.equal(requests, 1);
+    const issue = paused.__interrupt__[0].value.assign.issues[0];
+    assert.equal(issue.shadowTriage.risk.choice, "high");
+    assert.equal(issue.legacyMode, "direct-review");
+    assert.equal(issue.executionMode, "direct-review");
+    const state = await run.state();
+    assert.equal(JSON.stringify(state).includes("DO_NOT_STORE"), false);
+    assert.equal(
+      (await readFile(checkpointFile, "utf8")).includes("DO_NOT_STORE"),
+      false,
+    );
+    await run.resume({
+      assignments: [{ number: 1, agent: "Claude", model: "sonnet" }],
+    });
+    assert.equal(requests, 1);
+    assert.equal(deps.dispatched[0].route.agent, "Claude");
+    assert.equal(
+      JSON.stringify(deps.dispatched[0]).includes("DO_NOT_STORE"),
+      false,
+    );
+    assert.deepEqual((await run.state()).roleStates[0].program, [
+      "implementer",
+      "reviewer",
+    ]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -185,16 +244,26 @@ test("shadow fallback pauses auto assignment and never contacts Jev after revisi
     refreshTriageRoutes: async () => ({ capabilities: defaultCapabilities }),
     fetchTriageRevision: async () => null,
     triageEvidence: async () => [],
-    runTriage: async () => { requests += 1; throw new Error("unexpected-request"); },
+    runTriage: async () => {
+      requests += 1;
+      throw new Error("unexpected-request");
+    },
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  const paused = await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
+  const paused = await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
   assert.equal(isInterrupted(paused), true);
   assert.equal(requests, 0);
   assert.equal(deps.dispatched.length, 0);
-  assert.equal(paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason, "fetch-failed");
-  await run.resume({ assignments: [{ number: 1, agent: "Claude", model: "sonnet" }] });
+  assert.equal(
+    paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason,
+    "fetch-failed",
+  );
+  await run.resume({
+    assignments: [{ number: 1, agent: "Claude", model: "sonnet" }],
+  });
   assert.equal(deps.dispatched.length, 1);
 });
 
@@ -207,11 +276,17 @@ test("auto assignment still exposes the shadow comparison in the run summary", a
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
-  const comparison = buildSummary(await run.state(), "in-progress").shadowTriage[0];
+  await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
+  const comparison = buildSummary(await run.state(), "in-progress")
+    .shadowTriage[0];
   assert.equal(comparison.result.risk.choice, "high");
   assert.equal(comparison.legacyMode, "direct-review");
-  assert.deepEqual(comparison.assignedRoute, { agent: "Claude", model: "sonnet" });
+  assert.deepEqual(comparison.assignedRoute, {
+    agent: "Claude",
+    model: "sonnet",
+  });
 });
 
 test("provider fallback requires manual assignment even with autoAssign", async () => {
@@ -219,14 +294,21 @@ test("provider fallback requires manual assignment even with autoAssign", async 
     refreshTriageRoutes: async () => ({ capabilities: defaultCapabilities }),
     fetchTriageRevision: async () => revision,
     triageEvidence: async () => [],
-    runTriage: async (input) => ({ result: fallbackResult(triageContext(input), "provider-error") }),
+    runTriage: async (input) => ({
+      result: fallbackResult(triageContext(input), "provider-error"),
+    }),
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  const paused = await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
+  const paused = await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
   assert.equal(isInterrupted(paused), true);
   assert.equal(deps.dispatched.length, 0);
-  assert.equal(paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason, "provider-error");
+  assert.equal(
+    paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason,
+    "provider-error",
+  );
 });
 
 test("exhausted durable triage budget skips the child and waits for manual assignment", async () => {
@@ -235,15 +317,29 @@ test("exhausted durable triage budget skips the child and waits for manual assig
     refreshTriageRoutes: async () => ({ capabilities: defaultCapabilities }),
     fetchTriageRevision: async () => revision,
     triageEvidence: async () => [],
-    triageBudget: () => ({ runId: "t", reserved: 20, providerUnavailable: false }),
-    claimTriageAttempt: async () => { claims += 1; return true; },
-    runTriage: async () => { throw new Error("unexpected-request"); },
+    triageBudget: () => ({
+      runId: "t",
+      reserved: 20,
+      providerUnavailable: false,
+    }),
+    claimTriageAttempt: async () => {
+      claims += 1;
+      return true;
+    },
+    runTriage: async () => {
+      throw new Error("unexpected-request");
+    },
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  const paused = await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
+  const paused = await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
   assert.equal(isInterrupted(paused), true);
-  assert.equal(paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason, "budget-exhausted");
+  assert.equal(
+    paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason,
+    "budget-exhausted",
+  );
   assert.equal(claims, 0);
 });
 
@@ -255,14 +351,30 @@ test("resuming shadow assignment from a file checkpoint does not send Jev again"
       refreshTriageRoutes: async () => ({ capabilities: defaultCapabilities }),
       fetchTriageRevision: async () => revision,
       triageEvidence: async () => [],
-      runTriage: async (input) => { requests += 1; return { result: shadowRecommendation(input) }; },
+      runTriage: async (input) => {
+        requests += 1;
+        return { result: shadowRecommendation(input) };
+      },
       verifyTriageRoute: async () => ({ ok: true }),
     });
     const file = path.join(directory, "run.json");
-    const first = makeRun({ deps, checkpointer: await FileCheckpointSaver.load(file) });
-    await first.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig, autoAssign: false } }));
-    const restarted = makeRun({ deps, checkpointer: await FileCheckpointSaver.load(file) });
-    await restarted.resume({ assignments: [{ number: 1, agent: "Claude", model: "sonnet" }] });
+    const first = makeRun({
+      deps,
+      checkpointer: await FileCheckpointSaver.load(file),
+    });
+    await first.invoke(
+      makeInput({
+        items: [item(1)],
+        config: { triage: shadowConfig, autoAssign: false },
+      }),
+    );
+    const restarted = makeRun({
+      deps,
+      checkpointer: await FileCheckpointSaver.load(file),
+    });
+    await restarted.resume({
+      assignments: [{ number: 1, agent: "Claude", model: "sonnet" }],
+    });
     assert.equal(requests, 1);
     assert.equal(deps.dispatched.length, 1);
   } finally {
@@ -274,46 +386,70 @@ test("an Issue edit before first dispatch invalidates shadow and requires manual
   let reads = 0;
   const deps = makeDeps({
     refreshTriageRoutes: async () => ({ capabilities: defaultCapabilities }),
-    fetchTriageRevision: async () => (++reads === 1 ? revision : { updatedAt: "2026-07-22T00:00:00.000Z" }),
+    fetchTriageRevision: async () =>
+      ++reads === 1 ? revision : { updatedAt: "2026-07-22T00:00:00.000Z" },
     triageEvidence: async () => [],
     runTriage: async (input) => ({ result: shadowRecommendation(input) }),
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  const paused = await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
+  const paused = await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
   assert.equal(isInterrupted(paused), true);
   assert.equal(deps.dispatched.length, 0);
-  assert.equal(paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason, "stale-input");
-  await run.resume({ assignments: [{ number: 1, agent: "Claude", model: "sonnet" }] });
+  assert.equal(
+    paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason,
+    "stale-input",
+  );
+  await run.resume({
+    assignments: [{ number: 1, agent: "Claude", model: "sonnet" }],
+  });
   assert.equal(deps.dispatched.length, 1);
 });
 
 test("a changed verified pool invalidates the route recommendation before dispatch", async () => {
   let refreshes = 0;
   const deps = makeDeps({
-    refreshTriageRoutes: async () => ({ capabilities: ++refreshes === 1
-      ? defaultCapabilities : [parentRecord, workerRoute("Grok", "grok-4")] }),
+    refreshTriageRoutes: async () => ({
+      capabilities:
+        ++refreshes === 1
+          ? defaultCapabilities
+          : [parentRecord, workerRoute("Grok", "grok-4")],
+    }),
     fetchTriageRevision: async () => revision,
     triageEvidence: async () => [],
     runTriage: async (input) => ({ result: shadowRecommendation(input) }),
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  const paused = await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
+  const paused = await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
   assert.equal(isInterrupted(paused), true);
   assert.equal(deps.dispatched.length, 0);
-  assert.equal(paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason, "stale-input");
-  assert.deepEqual(paused.__interrupt__[0].value.assign.workerRoutes, [{ agent: "Grok", model: "grok-4" }]);
+  assert.equal(
+    paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason,
+    "stale-input",
+  );
+  assert.deepEqual(paused.__interrupt__[0].value.assign.workerRoutes, [
+    { agent: "Grok", model: "grok-4" },
+  ]);
 });
 
 test("shadow triage does not invent a worker when fresh CLI discovery has none", async () => {
   let requests = 0;
   const deps = makeDeps({
     refreshTriageRoutes: async () => ({ capabilities: [parentRecord] }),
-    runTriage: async () => { requests += 1; throw new Error("unexpected-request"); },
+    runTriage: async () => {
+      requests += 1;
+      throw new Error("unexpected-request");
+    },
   });
   const run = makeRun({ deps });
-  const result = await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
+  const result = await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
   assert.equal(result.runStatus, "failed");
   assert.equal(result.failureReason, "no-worker-route-available");
   assert.equal(requests, 0);
@@ -322,9 +458,15 @@ test("shadow triage does not invent a worker when fresh CLI discovery has none",
 
 test("assisted triage is explicitly unavailable before adoption", async () => {
   const run = makeRun();
-  const result = await run.invoke(makeInput({ items: [item(1)], config: {
-    triage: { ...shadowConfig, mode: "assisted" }, singleWorker: false,
-  } }));
+  const result = await run.invoke(
+    makeInput({
+      items: [item(1)],
+      config: {
+        triage: { ...shadowConfig, mode: "assisted" },
+        singleWorker: false,
+      },
+    }),
+  );
   assert.equal(result.runStatus, "failed");
   assert.equal(result.failureReason, "triage-assisted-not-available");
   assert.equal(run.deps.dispatched.length, 0);
@@ -334,20 +476,31 @@ test("a later dispatch batch refreshes and triages its newly available Issue", a
   const called = [];
   let refreshes = 0;
   const deps = makeDeps({
-    refreshTriageRoutes: async () => { refreshes += 1; return { capabilities: defaultCapabilities }; },
+    refreshTriageRoutes: async () => {
+      refreshes += 1;
+      return { capabilities: defaultCapabilities };
+    },
     fetchTriageRevision: async () => revision,
     triageEvidence: async () => [],
-    runTriage: async (input) => { called.push(input.issue); return { result: shadowRecommendation(input) }; },
+    runTriage: async (input) => {
+      called.push(input.issue);
+      return { result: shadowRecommendation(input) };
+    },
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  await run.invoke(makeInput({ items: [item(1), item(2)], config: { triage: shadowConfig } }));
+  await run.invoke(
+    makeInput({ items: [item(1), item(2)], config: { triage: shadowConfig } }),
+  );
   assert.deepEqual(called, [1]);
   await run.resume({ type: "milestone", issue: 1, milestone: "pr-created" });
   await run.resume({ accepted: true });
   assert.deepEqual(called, [1, 2]);
   assert.ok(refreshes >= 3);
-  assert.deepEqual(deps.dispatched.map(({ issueNumber }) => issueNumber), [1, 2]);
+  assert.deepEqual(
+    deps.dispatched.map(({ issueNumber }) => issueNumber),
+    [1, 2],
+  );
 });
 
 test("a successful Issue dispatches while another Issue awaits fallback assignment", async () => {
@@ -358,39 +511,71 @@ test("a successful Issue dispatches while another Issue awaits fallback assignme
     triageEvidence: async () => [],
     runTriage: async (input) => {
       called.push(input.issue);
-      return { result: input.issue === 1
-        ? fallbackResult(triageContext(input), "provider-error") : shadowRecommendation(input) };
+      return {
+        result:
+          input.issue === 1
+            ? fallbackResult(triageContext(input), "provider-error")
+            : shadowRecommendation(input),
+      };
     },
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  const paused = await run.invoke(makeInput({ items: [item(1), item(2)], config: {
-    triage: shadowConfig, maxParallel: 2,
-  } }));
+  const paused = await run.invoke(
+    makeInput({
+      items: [item(1), item(2)],
+      config: {
+        triage: shadowConfig,
+        maxParallel: 2,
+      },
+    }),
+  );
   assert.equal(isInterrupted(paused), true);
-  assert.deepEqual(deps.dispatched.map(({ issueNumber }) => issueNumber), [2]);
+  assert.deepEqual(
+    deps.dispatched.map(({ issueNumber }) => issueNumber),
+    [2],
+  );
   assert.deepEqual(called, [1, 2]);
-  assert.deepEqual(paused.__interrupt__[0].value.assign.issues.map(({ number }) => number), [1]);
+  assert.deepEqual(
+    paused.__interrupt__[0].value.assign.issues.map(({ number }) => number),
+    [1],
+  );
 });
 
 test("one stale Issue keeps another Issue's pending assignment intact", async () => {
   let issueOneReads = 0;
   const deps = makeDeps({
     refreshTriageRoutes: async () => ({ capabilities: defaultCapabilities }),
-    fetchTriageRevision: async (issue) => issue === 1 && ++issueOneReads > 1
-      ? { updatedAt: "2026-07-22T00:00:00.000Z" } : revision,
+    fetchTriageRevision: async (issue) =>
+      issue === 1 && ++issueOneReads > 1
+        ? { updatedAt: "2026-07-22T00:00:00.000Z" }
+        : revision,
     triageEvidence: async () => [],
     runTriage: async (input) => ({ result: shadowRecommendation(input) }),
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  const paused = await run.invoke(makeInput({ items: [item(1), item(2)], config: {
-    triage: shadowConfig, maxParallel: 2,
-  } }));
+  const paused = await run.invoke(
+    makeInput({
+      items: [item(1), item(2)],
+      config: {
+        triage: shadowConfig,
+        maxParallel: 2,
+      },
+    }),
+  );
   assert.equal(isInterrupted(paused), true);
-  assert.deepEqual((await run.state()).assignments.map(({ number }) => number), [2]);
-  await run.resume({ assignments: [{ number: 1, agent: "Claude", model: "sonnet" }] });
-  assert.deepEqual(deps.dispatched.map(({ issueNumber }) => issueNumber).sort(), [1, 2]);
+  assert.deepEqual(
+    (await run.state()).assignments.map(({ number }) => number),
+    [2],
+  );
+  await run.resume({
+    assignments: [{ number: 1, agent: "Claude", model: "sonnet" }],
+  });
+  assert.deepEqual(
+    deps.dispatched.map(({ issueNumber }) => issueNumber).sort(),
+    [1, 2],
+  );
 });
 
 test("a changed route evaluation before first dispatch invalidates shadow and requires manual assignment", async () => {
@@ -398,42 +583,72 @@ test("a changed route evaluation before first dispatch invalidates shadow and re
   const evaluatedAt = new Date().toISOString();
   // Valid under the real evidence contract, so only the evaluation change can invalidate it.
   const evaluation = (agent, model) => ({
-    agent, model, evaluatedAt, profileVersion: "fake-profile-1", benchmarkVersion: "fake-bench-1",
-    tasks: [{ kind: "local-code", samples: 10, passed: 8, medianDurationMs: 1000 }],
+    agent,
+    model,
+    evaluatedAt,
+    profileVersion: "fake-profile-1",
+    benchmarkVersion: "fake-bench-1",
+    tasks: [
+      { kind: "local-code", samples: 10, passed: 8, medianDurationMs: 1000 },
+    ],
   });
   const deps = makeDeps({
     refreshTriageRoutes: async () => ({ capabilities: defaultCapabilities }),
     fetchTriageRevision: async () => revision,
-    triageEvidence: async () => (++evidenceReads === 1
-      ? [] : [evaluation("Claude", "sonnet"), evaluation("Grok", "grok-4")]),
+    triageEvidence: async () =>
+      ++evidenceReads === 1
+        ? []
+        : [evaluation("Claude", "sonnet"), evaluation("Grok", "grok-4")],
     runTriage: async (input) => ({ result: shadowRecommendation(input) }),
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  const paused = await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
+  const paused = await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
   assert.equal(isInterrupted(paused), true);
   assert.equal(deps.dispatched.length, 0);
-  assert.equal(paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason, "stale-input");
-  await run.resume({ assignments: [{ number: 1, agent: "Claude", model: "sonnet" }] });
+  assert.equal(
+    paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason,
+    "stale-input",
+  );
+  await run.resume({
+    assignments: [{ number: 1, agent: "Claude", model: "sonnet" }],
+  });
   assert.equal(deps.dispatched.length, 1);
 });
 
 const providerErrorTriage = async (input) => ({
-  result: fallbackResult(triageContext(normalizeTriageInput(input)), "provider-error"),
+  result: fallbackResult(
+    triageContext(normalizeTriageInput(input)),
+    "provider-error",
+  ),
 });
 
 test("shadow recommendations survive a worker pool that is not in sorted order", async () => {
   // Discovery order puts Grok before Claude; the real runner sorts before hashing.
-  const capabilities = [parentRecord, workerRoute("Grok", "grok-4"), workerRoute("Claude", "sonnet")];
+  const capabilities = [
+    parentRecord,
+    workerRoute("Grok", "grok-4"),
+    workerRoute("Claude", "sonnet"),
+  ];
   const deps = makeDeps({
     refreshTriageRoutes: async () => ({ capabilities }),
     fetchTriageRevision: async () => revision,
     triageEvidence: async () => [],
-    runTriage: async (input) => ({ result: shadowRecommendation(normalizeTriageInput(input)) }),
+    runTriage: async (input) => ({
+      result: shadowRecommendation(normalizeTriageInput(input)),
+    }),
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  await run.invoke(makeInput({ items: [item(1)], capabilities, config: { triage: shadowConfig } }));
+  await run.invoke(
+    makeInput({
+      items: [item(1)],
+      capabilities,
+      config: { triage: shadowConfig },
+    }),
+  );
   const state = await run.state();
   assert.equal(state.triageByIssue[0].result.status, "recommended");
   assert.equal(state.triageByIssue[0].requiresManualAssignment, false);
@@ -449,11 +664,16 @@ test("a triage fallback is never assigned implicitly when the resume omits it", 
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
+  await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
   const again = await run.resume({ assignments: [] });
   assert.equal(isInterrupted(again), true);
   assert.equal(deps.dispatched.length, 0);
-  assert.equal(again.__interrupt__[0].value.lastEventError, "invalid-assignment:1:missing");
+  assert.equal(
+    again.__interrupt__[0].value.lastEventError,
+    "invalid-assignment:1:missing",
+  );
 });
 
 test("a manually assigned provider fallback dispatches through a continuing metadata outage", async () => {
@@ -466,9 +686,16 @@ test("a manually assigned provider fallback dispatches through a continuing meta
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  const paused = await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
-  assert.equal(paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason, "provider-error");
-  await run.resume({ assignments: [{ number: 1, agent: "Claude", model: "sonnet" }] });
+  const paused = await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
+  assert.equal(
+    paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason,
+    "provider-error",
+  );
+  await run.resume({
+    assignments: [{ number: 1, agent: "Claude", model: "sonnet" }],
+  });
   assert.equal(deps.dispatched.length, 1);
   assert.equal((await run.state()).failureReason, undefined);
 });
@@ -478,18 +705,24 @@ test("a route that fails exact verification is not offered again", async () => {
     refreshTriageRoutes: async () => ({ capabilities: defaultCapabilities }),
     fetchTriageRevision: async () => revision,
     triageEvidence: async () => [],
-    runTriage: async (input) => ({ result: shadowRecommendation(normalizeTriageInput(input)) }),
+    runTriage: async (input) => ({
+      result: shadowRecommendation(normalizeTriageInput(input)),
+    }),
     verifyTriageRoute: async (route) => ({ ok: route.model !== "sonnet" }),
   });
   const run = makeRun({ deps });
   // autoAssign picks Claude first; its preflight verification fails.
-  const retry = await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
+  const retry = await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
   assert.equal(isInterrupted(retry), true);
   assert.equal(deps.dispatched.length, 0);
   const prompt = retry.__interrupt__[0].value.assign;
   assert.equal(prompt.issues[0].shadowTriage.reason, "route-unavailable");
   assert.deepEqual(prompt.workerRoutes, [{ agent: "Grok", model: "grok-4" }]);
-  await run.resume({ assignments: [{ number: 1, agent: "Grok", model: "grok-4" }] });
+  await run.resume({
+    assignments: [{ number: 1, agent: "Grok", model: "grok-4" }],
+  });
   assert.equal(deps.dispatched.length, 1);
   assert.equal(deps.dispatched[0].route.agent, "Grok");
 });
@@ -499,12 +732,18 @@ test("exhausting every verified route in preflight fails closed without inventin
     refreshTriageRoutes: async () => ({ capabilities: defaultCapabilities }),
     fetchTriageRevision: async () => revision,
     triageEvidence: async () => [],
-    runTriage: async (input) => ({ result: shadowRecommendation(normalizeTriageInput(input)) }),
+    runTriage: async (input) => ({
+      result: shadowRecommendation(normalizeTriageInput(input)),
+    }),
     verifyTriageRoute: async () => ({ ok: false }),
   });
   const run = makeRun({ deps });
-  await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
-  await run.resume({ assignments: [{ number: 1, agent: "Grok", model: "grok-4" }] });
+  await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
+  await run.resume({
+    assignments: [{ number: 1, agent: "Grok", model: "grok-4" }],
+  });
   const state = await run.state();
   assert.equal(deps.dispatched.length, 0);
   assert.equal(state.failureReason, "no-worker-route-available");
@@ -525,10 +764,15 @@ test("a failing route-evidence provider becomes a closed fallback, not a graph e
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  const paused = await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
+  const paused = await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
   assert.equal(isInterrupted(paused), true);
   assert.equal(requests, 0);
-  assert.equal(paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason, "provider-error");
+  assert.equal(
+    paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason,
+    "provider-error",
+  );
 });
 
 test("shadow handoff of an interrupted worker does not depend on a fresh route refresh", async () => {
@@ -541,11 +785,15 @@ test("shadow handoff of an interrupted worker does not depend on a fresh route r
     },
     fetchTriageRevision: async () => revision,
     triageEvidence: async () => [],
-    runTriage: async (input) => ({ result: shadowRecommendation(normalizeTriageInput(input)) }),
+    runTriage: async (input) => ({
+      result: shadowRecommendation(normalizeTriageInput(input)),
+    }),
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
+  await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
   assert.equal(deps.dispatched[0].route.agent, "Claude");
   await run.resume({ type: "worker-interrupted", issue: 1, reason: "timeout" });
   const state = await run.state();
@@ -557,21 +805,37 @@ test("shadow handoff of an interrupted worker does not depend on a fresh route r
 test("Jev receives only freshly verified worker routes, never the parent runtime or unavailable models", async () => {
   const sent = [];
   const deps = makeDeps({
-    refreshTriageRoutes: async () => ({ capabilities: [
-      parentRecord, workerRoute("Codex", "gpt-5-codex"),
-      workerRoute("Claude", "sonnet"), workerRoute("Grok", "grok-4"),
-    ] }),
+    refreshTriageRoutes: async () => ({
+      capabilities: [
+        parentRecord,
+        workerRoute("Codex", "gpt-5-codex"),
+        workerRoute("Claude", "sonnet"),
+        workerRoute("Grok", "grok-4"),
+      ],
+    }),
     fetchTriageRevision: async () => revision,
     triageEvidence: async () => [],
-    runTriage: async (input) => { sent.push(input.routes); return { result: shadowRecommendation(input) }; },
+    runTriage: async (input) => {
+      sent.push(input.routes);
+      return { result: shadowRecommendation(input) };
+    },
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  await run.invoke(makeInput({ items: [item(1)], config: {
-    triage: shadowConfig, unavailableModels: ["grok-4"],
-  } }));
+  await run.invoke(
+    makeInput({
+      items: [item(1)],
+      config: {
+        triage: shadowConfig,
+        unavailableModels: ["grok-4"],
+      },
+    }),
+  );
   assert.deepEqual(sent, [[{ agent: "Claude", model: "sonnet" }]]);
-  assert.deepEqual(deps.dispatched.map(({ route }) => route.model), ["sonnet"]);
+  assert.deepEqual(
+    deps.dispatched.map(({ route }) => route.model),
+    ["sonnet"],
+  );
 });
 
 test("triage exception text never reaches state, checkpoint, interrupt, or summary", async () => {
@@ -582,46 +846,74 @@ test("triage exception text never reaches state, checkpoint, interrupt, or summa
       refreshTriageRoutes: async () => ({ capabilities: defaultCapabilities }),
       fetchTriageRevision: async () => revision,
       triageEvidence: async () => [],
-      runTriage: async () => { throw new Error(`TYPESAFE_API_KEY=${markers[0]} body=${markers[1]}`); },
+      runTriage: async () => {
+        throw new Error(`TYPESAFE_API_KEY=${markers[0]} body=${markers[1]}`);
+      },
       verifyTriageRoute: async () => ({ ok: true }),
     });
     const checkpointFile = path.join(directory, "run.json");
-    const run = makeRun({ deps, checkpointer: await FileCheckpointSaver.load(checkpointFile) });
-    const paused = await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
-    assert.equal(paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason, "provider-error");
+    const run = makeRun({
+      deps,
+      checkpointer: await FileCheckpointSaver.load(checkpointFile),
+    });
+    const paused = await run.invoke(
+      makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+    );
+    assert.equal(
+      paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason,
+      "provider-error",
+    );
     const state = await run.state();
     const outputs = [
-      JSON.stringify(paused.__interrupt__), JSON.stringify(state),
-      JSON.stringify(buildSummary(state, "in-progress")), await readFile(checkpointFile, "utf8"),
+      JSON.stringify(paused.__interrupt__),
+      JSON.stringify(state),
+      JSON.stringify(buildSummary(state, "in-progress")),
+      await readFile(checkpointFile, "utf8"),
     ];
     for (const output of outputs)
-      for (const marker of markers) assert.equal(output.includes(marker), false, `leaks ${marker}`);
+      for (const marker of markers)
+        assert.equal(output.includes(marker), false, `leaks ${marker}`);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });
 
 test("a checkpoint written before shadow triage resumes as triage off without contacting Jev", async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), "graph-legacy-checkpoint-"));
+  const directory = await mkdtemp(
+    path.join(tmpdir(), "graph-legacy-checkpoint-"),
+  );
   try {
-    const unexpected = async () => { throw new Error("unexpected-triage-call"); };
+    const unexpected = async () => {
+      throw new Error("unexpected-triage-call");
+    };
     const deps = makeDeps({
-      refreshTriageRoutes: unexpected, fetchTriageRevision: unexpected,
-      runTriage: unexpected, verifyTriageRoute: unexpected,
+      refreshTriageRoutes: unexpected,
+      fetchTriageRevision: unexpected,
+      runTriage: unexpected,
+      verifyTriageRoute: unexpected,
     });
     const file = path.join(directory, "run.json");
-    const first = makeRun({ deps, checkpointer: await FileCheckpointSaver.load(file) });
+    const first = makeRun({
+      deps,
+      checkpointer: await FileCheckpointSaver.load(file),
+    });
     const input = makeInput({ items: [item(1)] });
     delete input.config.triage;
     await first.invoke(input);
     // Drop the triage sections to mimic a checkpoint file written before #536.
-    const { triageBudgets, triageAttempts, ...legacy } = JSON.parse(await readFile(file, "utf8"));
+    const { triageBudgets, triageAttempts, ...legacy } = JSON.parse(
+      await readFile(file, "utf8"),
+    );
     assert.deepEqual([triageBudgets, triageAttempts], [{}, {}]);
     await writeFile(file, JSON.stringify(legacy));
     const saver = await FileCheckpointSaver.load(file);
     assert.equal(saver.triageBudget(triageRunId("t")), null);
     const restarted = makeRun({ deps, checkpointer: saver });
-    await restarted.resume({ type: "milestone", issue: 1, milestone: "pr-created" });
+    await restarted.resume({
+      type: "milestone",
+      issue: 1,
+      milestone: "pr-created",
+    });
     const done = await restarted.resume({ accepted: true });
     assert.equal(done.runStatus, "complete");
     assert.equal(Object.hasOwn(done.summary, "shadowTriage"), false);
@@ -632,7 +924,9 @@ test("a checkpoint written before shadow triage resumes as triage off without co
 
 test("fails closed on a dependency cycle", async () => {
   const run = makeRun();
-  const result = await run.invoke(makeInput({ items: [item(1, [2]), item(2, [1])] }));
+  const result = await run.invoke(
+    makeInput({ items: [item(1, [2]), item(2, [1])] }),
+  );
   assert.equal(result.runStatus, "failed");
   assert.match(result.failureReason, /^dependency-cycle:/);
   assert.equal(run.deps.dispatched.length, 0);
@@ -649,7 +943,9 @@ test("fails closed on an open blocked-by dependency", async () => {
 
 test("stops before any dispatch when zero verified worker routes exist", async () => {
   const run = makeRun();
-  const result = await run.invoke(makeInput({ items: [item(1)], capabilities: [parentRecord] }));
+  const result = await run.invoke(
+    makeInput({ items: [item(1)], capabilities: [parentRecord] }),
+  );
   assert.equal(result.runStatus, "failed");
   assert.equal(result.failureReason, "no-worker-route-available");
   assert.equal(run.deps.dispatched.length, 0);
@@ -660,7 +956,10 @@ test("fails closed when the parent route is unverifiable", async () => {
   const result = await run.invoke(
     makeInput({
       items: [item(1)],
-      capabilities: [{ ...parentRecord, verifiable: false }, workerRoute("Codex", "gpt-5")],
+      capabilities: [
+        { ...parentRecord, verifiable: false },
+        workerRoute("Codex", "gpt-5"),
+      ],
     }),
   );
   assert.equal(result.runStatus, "failed");
@@ -670,7 +969,9 @@ test("fails closed when the parent route is unverifiable", async () => {
 
 test("an unavailable agent is excluded from assignment", async () => {
   const run = makeRun();
-  const result = await run.invoke(makeInput({ items: [item(1)], config: { unavailableAgents: ["Codex"] } }));
+  const result = await run.invoke(
+    makeInput({ items: [item(1)], config: { unavailableAgents: ["Codex"] } }),
+  );
   assert.equal(isInterrupted(result), true);
   assert.deepEqual(
     run.deps.dispatched.map(({ route }) => route.agent),
@@ -682,23 +983,32 @@ test("a proposed assignment outside the verified pool fails closed", async () =>
   const run = makeRun();
   const result = await run.invoke({
     ...makeInput({ items: [item(1)], config: { autoAssign: false } }),
-    proposedAssignments: [{ number: 1, agent: "Codex", model: "gpt-6-imagined" }],
+    proposedAssignments: [
+      { number: 1, agent: "Codex", model: "gpt-6-imagined" },
+    ],
   });
   assert.equal(result.runStatus, "failed");
-  assert.equal(result.failureReason, "invalid-assignment:1:Codex:gpt-6-imagined");
+  assert.equal(
+    result.failureReason,
+    "invalid-assignment:1:Codex:gpt-6-imagined",
+  );
   assert.equal(run.deps.dispatched.length, 0);
 });
 
 test("interactive assignment pauses with the verified pool and accepts only pool routes", async () => {
   const run = makeRun();
-  const paused = await run.invoke(makeInput({ items: [item(1)], config: { autoAssign: false } }));
+  const paused = await run.invoke(
+    makeInput({ items: [item(1)], config: { autoAssign: false } }),
+  );
   assert.equal(isInterrupted(paused), true);
   const payload = paused.__interrupt__[0].value;
   assert.deepEqual(payload.assign.workerRoutes, [
     { agent: "Claude", model: "sonnet" },
     { agent: "Grok", model: "grok-4" },
   ]);
-  const result = await run.resume({ assignments: [{ number: 1, agent: "Claude", model: "sonnet" }] });
+  const result = await run.resume({
+    assignments: [{ number: 1, agent: "Claude", model: "sonnet" }],
+  });
   assert.equal(isInterrupted(result), true);
   assert.deepEqual(
     run.deps.dispatched.map(({ route }) => route.agent),
@@ -708,17 +1018,24 @@ test("interactive assignment pauses with the verified pool and accepts only pool
 
 test("an invalid interactive assignment re-prompts instead of killing the run", async () => {
   const run = makeRun();
-  await run.invoke(makeInput({ items: [item(1)], config: { autoAssign: false } }));
+  await run.invoke(
+    makeInput({ items: [item(1)], config: { autoAssign: false } }),
+  );
   const rejected = await run.resume({
     assignments: [{ number: 1, agent: "Codex", model: "gpt-6-imagined" }],
   });
   assert.equal(isInterrupted(rejected), true);
   const payload = rejected.__interrupt__[0].value;
-  assert.equal(payload.lastEventError, "invalid-assignment:1:Codex:gpt-6-imagined");
+  assert.equal(
+    payload.lastEventError,
+    "invalid-assignment:1:Codex:gpt-6-imagined",
+  );
   assert.ok(payload.assign, "re-presents the candidate set and verified pool");
   assert.equal(run.deps.dispatched.length, 0);
   // A corrected proposal then proceeds normally.
-  const accepted = await run.resume({ assignments: [{ number: 1, agent: "Claude", model: "sonnet" }] });
+  const accepted = await run.resume({
+    assignments: [{ number: 1, agent: "Claude", model: "sonnet" }],
+  });
   assert.equal(isInterrupted(accepted), true);
   assert.deepEqual(
     run.deps.dispatched.map(({ issueNumber }) => issueNumber),
@@ -734,7 +1051,12 @@ test("schedules dependent Issues only after the release milestone passes the gat
     [1],
   );
 
-  let result = await run.resume({ type: "milestone", issue: 1, milestone: "pr-created", usage: usageSample });
+  let result = await run.resume({
+    type: "milestone",
+    issue: 1,
+    milestone: "pr-created",
+    usage: usageSample,
+  });
   assert.deepEqual(result.__interrupt__[0].value.gate, {
     issue: 1,
     type: "pr-created",
@@ -763,7 +1085,10 @@ test("gate rejection does not release dependents", async () => {
   const run = makeRun();
   await run.invoke(makeInput({ items: [item(1), item(2, [1])] }));
   await run.resume({ type: "milestone", issue: 1, milestone: "pr-created" });
-  const result = await run.resume({ accepted: false, reason: "conflicts with issue 2 contract" });
+  const result = await run.resume({
+    accepted: false,
+    reason: "conflicts with issue 2 contract",
+  });
   assert.equal(isInterrupted(result), true);
   // Still waiting on Issue 1; Issue 2 was never dispatched or completed.
   assert.deepEqual(
@@ -774,7 +1099,12 @@ test("gate rejection does not release dependents", async () => {
   assert.deepEqual(state.completed, []);
   assert.deepEqual(state.milestones, []);
   assert.deepEqual(state.gateResults, [
-    { issue: 1, type: "pr-created", accepted: false, reason: "conflicts with issue 2 contract" },
+    {
+      issue: 1,
+      type: "pr-created",
+      accepted: false,
+      reason: "conflicts with issue 2 contract",
+    },
   ]);
   // The worker may resubmit the same milestone after rework; acceptance
   // then releases and dispatches the dependent Issue.
@@ -790,7 +1120,12 @@ test("gate rejection does not release dependents", async () => {
 
 test("merged release policy completes only on merged", async () => {
   const run = makeRun();
-  await run.invoke(makeInput({ items: [item(1), item(2, [1])], config: { releasePolicy: "merged" } }));
+  await run.invoke(
+    makeInput({
+      items: [item(1), item(2, [1])],
+      config: { releasePolicy: "merged" },
+    }),
+  );
   await run.resume({ type: "milestone", issue: 1, milestone: "pr-created" });
   await run.resume({ accepted: true });
   // pr-created accepted but policy is merged: dependent not released.
@@ -819,17 +1154,28 @@ test("duplicate milestone events are ignored without a second gate", async () =>
   await run.resume({ type: "milestone", issue: 1, milestone: "pr-created" });
   const result = await run.resume({ accepted: true });
   assert.equal(result.runStatus, "complete");
-  assert.deepEqual(result.summary.milestones, [{ issue: 1, type: "pr-created" }]);
+  assert.deepEqual(result.summary.milestones, [
+    { issue: 1, type: "pr-created" },
+  ]);
 });
 
 test("a duplicate milestone while waiting reports an event error and keeps waiting", async () => {
   const run = makeRun();
-  await run.invoke(makeInput({ items: [item(1), item(2, [1])], config: { maxParallel: 2 } }));
+  await run.invoke(
+    makeInput({ items: [item(1), item(2, [1])], config: { maxParallel: 2 } }),
+  );
   await run.resume({ type: "milestone", issue: 1, milestone: "pr-created" });
   await run.resume({ accepted: true });
-  const result = await run.resume({ type: "milestone", issue: 1, milestone: "pr-created" });
+  const result = await run.resume({
+    type: "milestone",
+    issue: 1,
+    milestone: "pr-created",
+  });
   assert.equal(isInterrupted(result), true);
-  assert.equal(result.__interrupt__[0].value.lastEventError, "duplicate-milestone:1:pr-created");
+  assert.equal(
+    result.__interrupt__[0].value.lastEventError,
+    "duplicate-milestone:1:pr-created",
+  );
   const state = await run.state();
   assert.deepEqual(state.milestones, [{ issue: 1, type: "pr-created" }]);
 });
@@ -841,7 +1187,11 @@ test("worker interruption hands off to another verified route in the same worktr
   assert.equal(before.workerExecutions[0].agent, "Claude");
   assert.equal(before.workerExecutions[0].worktreeId, "issue-1");
 
-  const result = await run.resume({ type: "worker-interrupted", issue: 1, reason: "timeout" });
+  const result = await run.resume({
+    type: "worker-interrupted",
+    issue: 1,
+    reason: "timeout",
+  });
   assert.equal(isInterrupted(result), true);
   const state = await run.state();
   assert.deepEqual(state.unavailableAgents, ["Claude"]);
@@ -870,8 +1220,15 @@ test("an interruption can carry a proposed handoff route, validated against the 
 test("fails closed when every handoff candidate is unavailable", async () => {
   const run = makeRun();
   const result = await run
-    .invoke(makeInput({ items: [item(1)], capabilities: [parentRecord, workerRoute("Claude", "sonnet")] }))
-    .then(() => run.resume({ type: "worker-interrupted", issue: 1, reason: "timeout" }));
+    .invoke(
+      makeInput({
+        items: [item(1)],
+        capabilities: [parentRecord, workerRoute("Claude", "sonnet")],
+      }),
+    )
+    .then(() =>
+      run.resume({ type: "worker-interrupted", issue: 1, reason: "timeout" }),
+    );
   assert.equal(result.runStatus, "failed");
   assert.equal(result.failureReason, "no-worker-route-available:handoff:1");
   // The interrupted worktree is untouched: no further dispatch happened.
@@ -907,7 +1264,11 @@ test("a route failing at dispatch time is excluded and the Issue handed off", as
 test("an interrupted worker with a pre-existing worktree hands off in handoff-issue mode", async () => {
   const run = makeRun();
   await run.invoke(makeInput({ items: [item(1)] }));
-  await run.resume({ type: "worker-interrupted", issue: 1, reason: "session-limit" });
+  await run.resume({
+    type: "worker-interrupted",
+    issue: 1,
+    reason: "session-limit",
+  });
   const state = await run.state();
   assert.equal(state.workerExecutions[0].skill, "handoff-issue");
 });
@@ -939,7 +1300,9 @@ test("a check with live workers keeps waiting without changes", async () => {
 });
 
 test("worker-started events attach process metadata to the execution", async () => {
-  const deps = makeDeps({ dispatch: async () => ({ pid: null, dispatchCommand: ["node", "x"] }) });
+  const deps = makeDeps({
+    dispatch: async () => ({ pid: null, dispatchCommand: ["node", "x"] }),
+  });
   const run = makeRun({ deps });
   await run.invoke(makeInput({ items: [item(1)] }));
   await run.resume({ type: "worker-started", issue: 1, pid: 4242, pgid: 4242 });
@@ -948,7 +1311,10 @@ test("worker-started events attach process metadata to the execution", async () 
   assert.equal(state.workerExecutions[0].pgid, 4242);
   // The probe compares against the PID report time, not the earlier
   // dispatch record, so late-launched instruction-mode workers stay alive.
-  assert.equal(state.workerExecutions[0].pidReportedAt, "2026-07-22T00:00:00.000Z");
+  assert.equal(
+    state.workerExecutions[0].pidReportedAt,
+    "2026-07-22T00:00:00.000Z",
+  );
 });
 
 test("the default probe accepts a live worker whose PID was reported after launch", async (t) => {
@@ -970,18 +1336,35 @@ test("the default probe accepts a live worker whose PID was reported after launc
     "alive",
   );
   // A PID recorded long ago but whose process started now is a reused PID.
-  assert.equal(await probeProcess({ pid: child.pid, startedAt: dispatchRecordedAt }), "mismatch");
-  assert.equal(await probeProcess({ startedAt: dispatchRecordedAt }), "unknown");
+  assert.equal(
+    await probeProcess({ pid: child.pid, startedAt: dispatchRecordedAt }),
+    "mismatch",
+  );
+  assert.equal(
+    await probeProcess({ startedAt: dispatchRecordedAt }),
+    "unknown",
+  );
 
   child.kill("SIGKILL");
   await new Promise((resolve) => child.once("exit", resolve));
-  assert.equal(await probeProcess({ pid: child.pid, pidReportedAt: new Date().toISOString() }), "dead");
+  assert.equal(
+    await probeProcess({
+      pid: child.pid,
+      pidReportedAt: new Date().toISOString(),
+    }),
+    "dead",
+  );
 });
 
 test("dispatches independent Issues in parallel and tolerates reversed completion order", async () => {
   const run = makeRun();
-  await run.invoke(makeInput({ items: [item(1), item(2)], config: { maxParallel: 2 } }));
-  assert.deepEqual(run.deps.dispatched.map(({ issueNumber }) => issueNumber).sort(), [1, 2]);
+  await run.invoke(
+    makeInput({ items: [item(1), item(2)], config: { maxParallel: 2 } }),
+  );
+  assert.deepEqual(
+    run.deps.dispatched.map(({ issueNumber }) => issueNumber).sort(),
+    [1, 2],
+  );
 
   await run.resume({ type: "milestone", issue: 2, milestone: "pr-created" });
   await run.resume({ accepted: true });
@@ -993,7 +1376,9 @@ test("dispatches independent Issues in parallel and tolerates reversed completio
 
 test("maxParallel counts active workers before dispatching more", async () => {
   const run = makeRun();
-  await run.invoke(makeInput({ items: [item(1), item(2)], config: { maxParallel: 1 } }));
+  await run.invoke(
+    makeInput({ items: [item(1), item(2)], config: { maxParallel: 1 } }),
+  );
   assert.deepEqual(
     run.deps.dispatched.map(({ issueNumber }) => issueNumber),
     [1],
@@ -1039,12 +1424,19 @@ test("summary keeps the established report fields", async () => {
       "runStatus",
     ].sort(),
   );
-  assert.deepEqual(result.summary.assignments, [{ number: 1, agent: "Claude", model: "sonnet" }]);
-  assert.deepEqual(result.summary.usage.issues, [{ number: 1, usage: "unavailable" }]);
+  assert.deepEqual(result.summary.assignments, [
+    { number: 1, agent: "Claude", model: "sonnet" },
+  ]);
+  assert.deepEqual(result.summary.usage.issues, [
+    { number: 1, usage: "unavailable" },
+  ]);
 });
 
 test("buildSummary reports the parent routing status recorded by discovery", () => {
-  assert.equal(buildSummary({ parentRouting: "unavailable" }, "failed").routing.parent, "unavailable");
+  assert.equal(
+    buildSummary({ parentRouting: "unavailable" }, "failed").routing.parent,
+    "unavailable",
+  );
   assert.equal(buildSummary({}, "failed").routing.parent, "verified");
 });
 
@@ -1067,7 +1459,11 @@ test("resumes after a process restart from the file checkpointer with the same t
       checkpointer: await FileCheckpointSaver.load(checkpointFile),
       threadId: "restart",
     });
-    await second.resume({ type: "milestone", issue: 1, milestone: "pr-created" });
+    await second.resume({
+      type: "milestone",
+      issue: 1,
+      milestone: "pr-created",
+    });
     const result = await second.resume({ accepted: true });
     assert.equal(isInterrupted(result), true);
     assert.deepEqual(
@@ -1093,7 +1489,14 @@ test("checkpoints contain no Issue bodies, prompts, diffs, or credentials", asyn
     await run.resume({ type: "milestone", issue: 1, milestone: "pr-created" });
     await run.resume({ accepted: true });
     const raw = await readFile(checkpointFile, "utf8");
-    for (const marker of ["issueBody", "prompt", "diff", "credential", "password", "token"])
+    for (const marker of [
+      "issueBody",
+      "prompt",
+      "diff",
+      "credential",
+      "password",
+      "token",
+    ])
       assert.equal(raw.includes(marker), false, `checkpoint leaks ${marker}`);
     // State carries only the sanitized item fields.
     assert.equal(raw.includes("https://example.com/1"), true);
@@ -1102,7 +1505,7 @@ test("checkpoints contain no Issue bodies, prompts, diffs, or credentials", asyn
   }
 });
 
-test("the graph CLI starts, pauses, and resumes across separate processes", async () => {
+test("the graph CLI starts, pauses, and resumes across separate processes", async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), "graph-cli-"));
   const checkpointFile = path.join(directory, "run.json");
   const inputFile = path.join(directory, "input.json");
@@ -1114,31 +1517,35 @@ test("the graph CLI starts, pauses, and resumes across separate processes", asyn
       capabilities: [parentRecord, workerRoute("Claude", "sonnet")],
     }),
   );
-  const script = new URL("../../scripts/issue-graph.mjs", import.meta.url).pathname;
+  const script = path.join(isolatedScriptRoot(t), "scripts/issue-graph.mjs");
   const options = { env: await freshCheckoutEnv(directory) };
   try {
-    const started = await execFileAsync(process.execPath, [
-      script,
-      "--thread-id",
-      "cli-run",
-      "--checkpoint-file",
-      checkpointFile,
-      "--input",
-      inputFile,
-      "--issues",
-      "1",
-      "--max-parallel",
-      "1",
-      "--release-policy",
-      "pr-created",
-      "--parent-agent",
-      "Codex",
-      "--parent-model",
-      "gpt-5",
-      "--auto-assign",
-      "--triage",
-      "off",
-    ], options);
+    const started = await execFileAsync(
+      process.execPath,
+      [
+        script,
+        "--thread-id",
+        "cli-run",
+        "--checkpoint-file",
+        checkpointFile,
+        "--input",
+        inputFile,
+        "--issues",
+        "1",
+        "--max-parallel",
+        "1",
+        "--release-policy",
+        "pr-created",
+        "--parent-agent",
+        "Codex",
+        "--parent-model",
+        "gpt-5",
+        "--auto-assign",
+        "--triage",
+        "off",
+      ],
+      options,
+    );
     const paused = JSON.parse(started.stdout);
     assert.equal(paused.status, "paused");
     assert.equal(paused.dispatchInstructions.length, 1);
@@ -1146,7 +1553,9 @@ test("the graph CLI starts, pauses, and resumes across separate processes", asyn
     // Roles are on by default, so the first worker is the implementer and
     // the launch command carries its role.
     assert.equal(paused.dispatchInstructions[0].role, "implementer");
-    assert.ok(paused.dispatchInstructions[0].dispatchCommand.includes("--role"));
+    assert.ok(
+      paused.dispatchInstructions[0].dispatchCommand.includes("--role"),
+    );
 
     const resumeArgs = (event) => [
       script,
@@ -1159,13 +1568,24 @@ test("the graph CLI starts, pauses, and resumes across separate processes", asyn
     ];
     await execFileAsync(
       process.execPath,
-      resumeArgs({ type: "role-complete", issue: 1, role: "implementer" }), options,
+      resumeArgs({ type: "role-complete", issue: 1, role: "implementer" }),
+      options,
     );
     await execFileAsync(
       process.execPath,
-      resumeArgs({ type: "role-complete", issue: 1, role: "reviewer", verdict: "PASS" }), options,
+      resumeArgs({
+        type: "role-complete",
+        issue: 1,
+        role: "reviewer",
+        verdict: "PASS",
+      }),
+      options,
     );
-    const finished = await execFileAsync(process.execPath, resumeArgs({ accepted: true }), options);
+    const finished = await execFileAsync(
+      process.execPath,
+      resumeArgs({ accepted: true }),
+      options,
+    );
     const result = JSON.parse(finished.stdout);
     assert.equal(result.status, "complete");
     assert.deepEqual(result.summary.completed, [1]);
@@ -1179,12 +1599,21 @@ test("the file checkpointer rejects unsupported and corrupt files with stable re
   const { writeFile } = await import("node:fs/promises");
   try {
     const wrongFormat = path.join(directory, "wrong.json");
-    await writeFile(wrongFormat, JSON.stringify({ format: "something-else/v9" }));
-    await assert.rejects(FileCheckpointSaver.load(wrongFormat), /checkpoint-format-unsupported/);
+    await writeFile(
+      wrongFormat,
+      JSON.stringify({ format: "something-else/v9" }),
+    );
+    await assert.rejects(
+      FileCheckpointSaver.load(wrongFormat),
+      /checkpoint-format-unsupported/,
+    );
 
     const corrupt = path.join(directory, "corrupt.json");
     await writeFile(corrupt, "{ not json");
-    await assert.rejects(FileCheckpointSaver.load(corrupt), /checkpoint-file-corrupt/);
+    await assert.rejects(
+      FileCheckpointSaver.load(corrupt),
+      /checkpoint-file-corrupt/,
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -1201,11 +1630,17 @@ test("deleteThread persists across a checkpointer reload", async () => {
     await first.invoke(makeInput({ items: [item(1)] }));
 
     const saver = await FileCheckpointSaver.load(checkpointFile);
-    assert.notEqual(await saver.getTuple({ configurable: { thread_id: "wipe" } }), undefined);
+    assert.notEqual(
+      await saver.getTuple({ configurable: { thread_id: "wipe" } }),
+      undefined,
+    );
     await saver.deleteThread("wipe");
 
     const reloaded = await FileCheckpointSaver.load(checkpointFile);
-    assert.equal(await reloaded.getTuple({ configurable: { thread_id: "wipe" } }), undefined);
+    assert.equal(
+      await reloaded.getTuple({ configurable: { thread_id: "wipe" } }),
+      undefined,
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -1216,19 +1651,38 @@ test("triage request reservations survive restart and cannot be refunded", async
   const checkpointFile = path.join(directory, "run.json");
   try {
     const saver = await FileCheckpointSaver.load(checkpointFile);
-    assert.equal(await saver.beginTriageAttempt("run", "fake-context-hash"), true);
-    await saver.reserveTriageBudget({ runId: "run", reserved: 1, providerUnavailable: false });
+    assert.equal(
+      await saver.beginTriageAttempt("run", "fake-context-hash"),
+      true,
+    );
+    await saver.reserveTriageBudget({
+      runId: "run",
+      reserved: 1,
+      providerUnavailable: false,
+    });
     const restarted = await FileCheckpointSaver.load(checkpointFile);
-    assert.equal(await restarted.beginTriageAttempt("run", "fake-context-hash"), false);
+    assert.equal(
+      await restarted.beginTriageAttempt("run", "fake-context-hash"),
+      false,
+    );
     assert.deepEqual(restarted.triageBudget("run"), {
-      runId: "run", reserved: 1, providerUnavailable: false,
+      runId: "run",
+      reserved: 1,
+      providerUnavailable: false,
     });
     await assert.rejects(
-      restarted.reserveTriageBudget({ runId: "run", reserved: 0, providerUnavailable: false }),
+      restarted.reserveTriageBudget({
+        runId: "run",
+        reserved: 0,
+        providerUnavailable: false,
+      }),
       /triage-budget-regression/,
     );
     await restarted.deleteThread("run");
-    assert.equal((await FileCheckpointSaver.load(checkpointFile)).triageBudget("run"), null);
+    assert.equal(
+      (await FileCheckpointSaver.load(checkpointFile)).triageBudget("run"),
+      null,
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -1241,11 +1695,22 @@ test("unusual graph thread IDs map to a stable valid triage budget ID", async ()
     const saver = await FileCheckpointSaver.load(file);
     const runId = triageRunId("run.with.dot");
     assert.match(runId, /^[\w-]{1,100}$/);
-    await saver.reserveTriageBudget({ runId, reserved: 1, providerUnavailable: false });
-    const deps = createDefaultDeps({ cwd: process.cwd(), checkpointer: saver, threadId: "run.with.dot" });
+    await saver.reserveTriageBudget({
+      runId,
+      reserved: 1,
+      providerUnavailable: false,
+    });
+    const deps = createDefaultDeps({
+      cwd: process.cwd(),
+      checkpointer: saver,
+      threadId: "run.with.dot",
+    });
     assert.equal(deps.triageBudget().reserved, 1);
     await saver.deleteThread("run.with.dot");
-    assert.equal((await FileCheckpointSaver.load(file)).triageBudget(runId), null);
+    assert.equal(
+      (await FileCheckpointSaver.load(file)).triageBudget(runId),
+      null,
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -1256,21 +1721,41 @@ test("the parent runtime receives worker dispatches only when parent.asWorker op
   const capabilities = [parentRecord, workerRoute("Codex", "gpt-5")];
   const excluded = makeRun();
   await excluded.invoke(makeInput({ items: [item(1)], capabilities }));
-  assert.equal((await excluded.state()).failureReason, "no-worker-route-available");
+  assert.equal(
+    (await excluded.state()).failureReason,
+    "no-worker-route-available",
+  );
   assert.equal(excluded.deps.dispatched.length, 0);
 
   const included = makeRun();
-  await included.invoke(makeInput({ items: [item(1)], capabilities,
-    config: { parent: { agent: "Codex", model: "gpt-5", asWorker: true } } }));
+  await included.invoke(
+    makeInput({
+      items: [item(1)],
+      capabilities,
+      config: { parent: { agent: "Codex", model: "gpt-5", asWorker: true } },
+    }),
+  );
   assert.equal((await included.state()).failureReason, undefined);
   assert.equal(included.deps.dispatched.at(-1)?.route.agent, "Codex");
 });
 
 test("parseGraphCliArgs validates thread id and resume sources", () => {
-  assert.equal(parseGraphCliArgs(["--thread-id", "t", "--parent-as-worker"]).parentAsWorker, "always");
+  assert.equal(
+    parseGraphCliArgs(["--thread-id", "t", "--parent-as-worker"])
+      .parentAsWorker,
+    "always",
+  );
   assert.throws(() => parseGraphCliArgs([]), /thread-id-required/);
   assert.throws(
-    () => parseGraphCliArgs(["--thread-id", "t", "--resume-json", "{}", "--resume-file", "x"]),
+    () =>
+      parseGraphCliArgs([
+        "--thread-id",
+        "t",
+        "--resume-json",
+        "{}",
+        "--resume-file",
+        "x",
+      ]),
     /resume-source-conflict/,
   );
   assert.throws(
@@ -1302,7 +1787,11 @@ test("classifies failure taxonomy into recoverable and unrecoverable reasons", a
   assert.equal(classifyFailure("policy-blocked").recoverable, false);
   assert.equal(classifyFailure("invalid-input").recoverable, false);
 
-  assert.deepEqual(Array.from(FAILURE_TRANSITIONS.running), ["retrying", "handing_off", "failed"]);
+  assert.deepEqual(Array.from(FAILURE_TRANSITIONS.running), [
+    "retrying",
+    "handing_off",
+    "failed",
+  ]);
   assert.equal(idempotencyKey(1, "dispatch", 1), "issue-1:dispatch:1");
 });
 
@@ -1310,7 +1799,8 @@ test("classifies failure taxonomy into recoverable and unrecoverable reasons", a
 /* Role programs (#482)                                                */
 /* ------------------------------------------------------------------ */
 
-const roleInput = (items, config = {}) => makeInput({ items, config: { singleWorker: false, ...config } });
+const roleInput = (items, config = {}) =>
+  makeInput({ items, config: { singleWorker: false, ...config } });
 
 test("a role program dispatches the implementer, then the reviewer on a different route", async () => {
   const run = makeRun();
@@ -1331,12 +1821,25 @@ test("a role program dispatches the implementer, then the reviewer on a differen
   // Independent review means a different runtime.
   assert.notEqual(reviewer.route.agent, implementer.route.agent);
 
-  await run.resume({ type: "role-complete", issue: 1, role: "reviewer", verdict: "PASS" });
+  await run.resume({
+    type: "role-complete",
+    issue: 1,
+    role: "reviewer",
+    verdict: "PASS",
+  });
   const result = await run.resume({ accepted: true });
-  assert.deepEqual(result.summary.milestones, [{ issue: 1, type: "pr-created" }]);
+  assert.deepEqual(result.summary.milestones, [
+    { issue: 1, type: "pr-created" },
+  ]);
   assert.deepEqual(result.summary.completed, [1]);
   assert.deepEqual(result.summary.roles, [
-    { issue: 1, executionMode: "direct-review", role: null, status: "awaiting-milestone", reviewPasses: 1 },
+    {
+      issue: 1,
+      executionMode: "direct-review",
+      role: null,
+      status: "awaiting-milestone",
+      reviewPasses: 1,
+    },
   ]);
 });
 
@@ -1368,7 +1871,12 @@ test("NEEDS_REVISION buys one fix pass, which goes to the milestone without a se
   const run = makeRun();
   await run.invoke(roleInput([item(1)]));
   await run.resume({ type: "role-complete", issue: 1, role: "implementer" });
-  await run.resume({ type: "role-complete", issue: 1, role: "reviewer", verdict: "NEEDS_REVISION" });
+  await run.resume({
+    type: "role-complete",
+    issue: 1,
+    role: "reviewer",
+    verdict: "NEEDS_REVISION",
+  });
 
   const fix = run.deps.dispatched.at(-1);
   assert.equal(fix.role, "implementer");
@@ -1377,10 +1885,16 @@ test("NEEDS_REVISION buys one fix pass, which goes to the milestone without a se
 
   const dispatchesBefore = run.deps.dispatched.length;
   await run.resume({ type: "role-complete", issue: 1, role: "implementer" });
-  assert.equal(run.deps.dispatched.length, dispatchesBefore, "no second review pass");
+  assert.equal(
+    run.deps.dispatched.length,
+    dispatchesBefore,
+    "no second review pass",
+  );
 
   const result = await run.resume({ accepted: true });
-  assert.deepEqual(result.summary.milestones, [{ issue: 1, type: "pr-created" }]);
+  assert.deepEqual(result.summary.milestones, [
+    { issue: 1, type: "pr-created" },
+  ]);
   assert.deepEqual(result.summary.completed, [1]);
   assert.equal(result.summary.roles[0].reviewPasses, 1);
 });
@@ -1391,7 +1905,11 @@ test("an interrupted reviewer resumes as the reviewer on another verified route"
   await run.resume({ type: "role-complete", issue: 1, role: "implementer" });
   const reviewer = run.deps.dispatched.at(-1);
 
-  await run.resume({ type: "worker-interrupted", issue: 1, reason: "session-limit" });
+  await run.resume({
+    type: "worker-interrupted",
+    issue: 1,
+    reason: "session-limit",
+  });
   const handoff = run.deps.dispatched.at(-1);
   assert.equal(handoff.role, "reviewer");
   // Still a reviewer after the handoff, so still no implementation skill.
@@ -1405,7 +1923,12 @@ test("mode telemetry is emitted once, at release, with labels and counters only"
   const run = makeRun();
   await run.invoke(roleInput([item(1)]));
   await run.resume({ type: "role-complete", issue: 1, role: "implementer" });
-  await run.resume({ type: "role-complete", issue: 1, role: "reviewer", verdict: "PASS" });
+  await run.resume({
+    type: "role-complete",
+    issue: 1,
+    role: "reviewer",
+    verdict: "PASS",
+  });
   // The gate may still send the program back, so nothing terminal is recorded
   // until the Issue is actually released.
   assert.deepEqual((await run.state()).modeTelemetry, []);
@@ -1419,10 +1942,17 @@ test("mode telemetry is emitted once, at release, with labels and counters only"
   assert.equal(record.outcome, "released");
   assert.equal(record.selectionReason, "deterministic-policy");
   assert.equal(record.reviewPasses, 1);
-  assert.deepEqual(Object.keys(record.routes.implementer).sort(), ["agent", "model"]);
+  assert.deepEqual(Object.keys(record.routes.implementer).sort(), [
+    "agent",
+    "model",
+  ]);
   const serialized = JSON.stringify(state.modeTelemetry);
   for (const forbidden of ["selector", "prompt", "diff", "body"])
-    assert.equal(serialized.includes(forbidden), false, `telemetry leaked ${forbidden}`);
+    assert.equal(
+      serialized.includes(forbidden),
+      false,
+      `telemetry leaked ${forbidden}`,
+    );
 });
 
 test("single-worker mode dispatches one roleless worker per Issue", async () => {
@@ -1440,9 +1970,17 @@ test("an integration-gate rejection sends the Issue back to the implementer", as
   const run = makeRun();
   await run.invoke(roleInput([item(1)]));
   await run.resume({ type: "role-complete", issue: 1, role: "implementer" });
-  await run.resume({ type: "role-complete", issue: 1, role: "reviewer", verdict: "PASS" });
+  await run.resume({
+    type: "role-complete",
+    issue: 1,
+    role: "reviewer",
+    verdict: "PASS",
+  });
 
-  await run.resume({ accepted: false, reason: "conflicts-with-other-issues-in-run" });
+  await run.resume({
+    accepted: false,
+    reason: "conflicts-with-other-issues-in-run",
+  });
   const fix = run.deps.dispatched.at(-1);
   assert.equal(fix.role, "implementer");
   assert.equal(fix.skill, "handoff-issue");
@@ -1458,7 +1996,11 @@ test("a role whose recorded route left the pool is re-picked from what remains",
   const implementer = run.deps.dispatched.at(-1);
   // Interrupting the implementer excludes its agent for the rest of the run;
   // the reviewer route recorded at program start may be the one left.
-  await run.resume({ type: "worker-interrupted", issue: 1, reason: "session-limit" });
+  await run.resume({
+    type: "worker-interrupted",
+    issue: 1,
+    reason: "session-limit",
+  });
   await run.resume({ type: "role-complete", issue: 1, role: "implementer" });
 
   const reviewer = run.deps.dispatched.at(-1);
@@ -1473,7 +2015,10 @@ test("route identity survives a checkpoint round-trip", async () => {
   try {
     const checkpointFile = path.join(directory, "run.json");
     const deps = makeDeps();
-    const first = makeRun({ deps, checkpointer: await FileCheckpointSaver.load(checkpointFile) });
+    const first = makeRun({
+      deps,
+      checkpointer: await FileCheckpointSaver.load(checkpointFile),
+    });
     await first.invoke(roleInput([item(1)]));
     const implementer = deps.dispatched.at(-1);
     assert.equal(implementer.role, "implementer");
@@ -1481,12 +2026,22 @@ test("route identity survives a checkpoint round-trip", async () => {
     // A fresh saver reloads state from disk, so the role's recorded routes
     // come back as new objects: distinctness must hold on labels, not on
     // object identity.
-    const second = makeRun({ deps, checkpointer: await FileCheckpointSaver.load(checkpointFile) });
+    const second = makeRun({
+      deps,
+      checkpointer: await FileCheckpointSaver.load(checkpointFile),
+    });
     const reloaded = await second.state();
     assert.equal(reloaded.roleStates.length, 1, "state came back from disk");
-    assert.notEqual(reloaded.roleStates[0].routes.implementer, implementer.route);
+    assert.notEqual(
+      reloaded.roleStates[0].routes.implementer,
+      implementer.route,
+    );
 
-    await second.resume({ type: "role-complete", issue: 1, role: "implementer" });
+    await second.resume({
+      type: "role-complete",
+      issue: 1,
+      role: "implementer",
+    });
     const reviewer = deps.dispatched.at(-1);
     assert.equal(reviewer.role, "reviewer");
     assert.notEqual(reviewer.route.agent, implementer.route.agent);
@@ -1499,7 +2054,12 @@ test("a role program completes under --release-policy merged instead of dead-end
   const run = makeRun();
   await run.invoke(roleInput([item(1)], { releasePolicy: "merged" }));
   await run.resume({ type: "role-complete", issue: 1, role: "implementer" });
-  await run.resume({ type: "role-complete", issue: 1, role: "reviewer", verdict: "PASS" });
+  await run.resume({
+    type: "role-complete",
+    issue: 1,
+    role: "reviewer",
+    verdict: "PASS",
+  });
 
   // pr-created passes the gate but does not release under this policy: the
   // run must stay waitable for the external merge event, not summarize.
@@ -1518,19 +2078,32 @@ test("a role program completes under --release-policy merged instead of dead-end
 test("an implementer route proposal equal to the reviewer's is rejected on a fix cycle", async () => {
   const run = makeRun();
   await run.invoke(roleInput([item(1)], { autoAssign: false }));
-  await run.resume({ assignments: [{ number: 1, agent: "Claude", model: "sonnet" }] });
+  await run.resume({
+    assignments: [{ number: 1, agent: "Claude", model: "sonnet" }],
+  });
   await run.resume({ type: "role-complete", issue: 1, role: "implementer" });
-  await run.resume({ assignments: [{ number: 1, agent: "Grok", model: "grok-4" }] });
-  await run.resume({ type: "role-complete", issue: 1, role: "reviewer", verdict: "NEEDS_REVISION" });
+  await run.resume({
+    assignments: [{ number: 1, agent: "Grok", model: "grok-4" }],
+  });
+  await run.resume({
+    type: "role-complete",
+    issue: 1,
+    role: "reviewer",
+    verdict: "NEEDS_REVISION",
+  });
 
   // The fix pass must not move the implementer onto the reviewer's runtime.
-  const rejected = await run.resume({ assignments: [{ number: 1, agent: "Grok", model: "grok-4" }] });
+  const rejected = await run.resume({
+    assignments: [{ number: 1, agent: "Grok", model: "grok-4" }],
+  });
   assert.equal(isInterrupted(rejected), true);
   assert.equal(
     rejected.__interrupt__[0].value.lastEventError,
     "invalid-assignment:1:implementer-route-not-distinct",
   );
-  const accepted = await run.resume({ assignments: [{ number: 1, agent: "Claude", model: "sonnet" }] });
+  const accepted = await run.resume({
+    assignments: [{ number: 1, agent: "Claude", model: "sonnet" }],
+  });
   assert.equal(isInterrupted(accepted), true);
   assert.equal(run.deps.dispatched.at(-1).role, "implementer");
   assert.equal(run.deps.dispatched.at(-1).route.agent, "Claude");
@@ -1571,7 +2144,10 @@ test("a handoff with no distinct route left shares one and records the degradati
   assert.equal(handoff.role, "reviewer");
   assert.equal(handoff.route.agent, implementer.route.agent);
   const state = await run.state();
-  assert.equal(state.roleStates[0].degraded, "same-route:reviewer:no-distinct-route-left");
+  assert.equal(
+    state.roleStates[0].degraded,
+    "same-route:reviewer:no-distinct-route-left",
+  );
 });
 
 test("malformed role-complete events are rejected without touching state", async () => {
@@ -1580,16 +2156,29 @@ test("malformed role-complete events are rejected without touching state", async
   const before = await run.state();
 
   // The event's role must match the running worker's role.
-  await run.resume({ type: "role-complete", issue: 1, role: "reviewer", verdict: "PASS" });
+  await run.resume({
+    type: "role-complete",
+    issue: 1,
+    role: "reviewer",
+    verdict: "PASS",
+  });
   let state = await run.state();
   assert.equal(state.lastEventError, "invalid-event:role-mismatch:1:reviewer");
   assert.deepEqual(state.roleStates, before.roleStates);
 
   // A reviewer completion needs a valid verdict.
   await run.resume({ type: "role-complete", issue: 1, role: "implementer" });
-  await run.resume({ type: "role-complete", issue: 1, role: "reviewer", verdict: "LGTM" });
+  await run.resume({
+    type: "role-complete",
+    issue: 1,
+    role: "reviewer",
+    verdict: "LGTM",
+  });
   state = await run.state();
-  assert.equal(state.lastEventError, "invalid-event:invalid-review-verdict:LGTM");
+  assert.equal(
+    state.lastEventError,
+    "invalid-event:invalid-review-verdict:LGTM",
+  );
   assert.equal(state.roleStates[0].status, "active");
   assert.equal(state.roleStates[0].reviewPasses, 0);
 });
@@ -1636,48 +2225,88 @@ test("a fix pass tells the implementer a PR already exists", async () => {
   assert.equal(first.skill, "issue-implementation");
 
   await run.resume({ type: "role-complete", issue: 1, role: "implementer" });
-  await run.resume({ type: "role-complete", issue: 1, role: "reviewer", verdict: "NEEDS_REVISION" });
+  await run.resume({
+    type: "role-complete",
+    issue: 1,
+    role: "reviewer",
+    verdict: "NEEDS_REVISION",
+  });
 
   const fix = run.deps.dispatched.at(-1);
   assert.equal(fix.role, "implementer");
   assert.equal(fix.fixCycle, 1);
   // handoff-issue resumes the worktree; it never opens a second PR.
   assert.equal(fix.skill, "handoff-issue");
-  assert.ok(fix.dispatchCommand === undefined || fix.dispatchCommand.includes("--fix-cycle"));
+  assert.ok(
+    fix.dispatchCommand === undefined ||
+      fix.dispatchCommand.includes("--fix-cycle"),
+  );
 });
 
 test("an interrupted fix pass keeps its fix cycle across the handoff", async () => {
   const run = makeRun();
   await run.invoke(roleInput([item(1)]));
   await run.resume({ type: "role-complete", issue: 1, role: "implementer" });
-  await run.resume({ type: "role-complete", issue: 1, role: "reviewer", verdict: "NEEDS_REVISION" });
-  await run.resume({ type: "worker-interrupted", issue: 1, reason: "session-limit" });
+  await run.resume({
+    type: "role-complete",
+    issue: 1,
+    role: "reviewer",
+    verdict: "NEEDS_REVISION",
+  });
+  await run.resume({
+    type: "worker-interrupted",
+    issue: 1,
+    reason: "session-limit",
+  });
 
   const handoff = run.deps.dispatched.at(-1);
   assert.equal(handoff.role, "implementer");
-  assert.equal(handoff.fixCycle, 1, "the replacement worker must still know a PR exists");
+  assert.equal(
+    handoff.fixCycle,
+    1,
+    "the replacement worker must still know a PR exists",
+  );
 });
 
 test("a second integration-gate rejection blocks instead of reopening again", async () => {
   const run = makeRun();
   await run.invoke(roleInput([item(1)]));
   await run.resume({ type: "role-complete", issue: 1, role: "implementer" });
-  await run.resume({ type: "role-complete", issue: 1, role: "reviewer", verdict: "PASS" });
+  await run.resume({
+    type: "role-complete",
+    issue: 1,
+    role: "reviewer",
+    verdict: "PASS",
+  });
 
   // First gate rejection spends the gate's own single reopen.
-  await run.resume({ accepted: false, reason: "conflicts-with-other-issues-in-run" });
+  await run.resume({
+    accepted: false,
+    reason: "conflicts-with-other-issues-in-run",
+  });
   let state = await run.state();
   assert.equal(state.roleStates[0].gateReopens, 1);
   assert.equal(state.roleStates[0].status, "active");
 
   await run.resume({ type: "role-complete", issue: 1, role: "implementer" });
-  await run.resume({ type: "role-complete", issue: 1, role: "reviewer", verdict: "PASS" });
-  const result = await run.resume({ accepted: false, reason: "conflicts-with-other-issues-in-run" });
+  await run.resume({
+    type: "role-complete",
+    issue: 1,
+    role: "reviewer",
+    verdict: "PASS",
+  });
+  const result = await run.resume({
+    accepted: false,
+    reason: "conflicts-with-other-issues-in-run",
+  });
 
   assert.equal(result.runStatus, "blocked");
   state = await run.state();
   assert.equal(state.roleStates[0].status, "blocked");
-  assert.equal(state.roleStates[0].blockedReason, "integration-gate-rejected-twice");
+  assert.equal(
+    state.roleStates[0].blockedReason,
+    "integration-gate-rejected-twice",
+  );
   assert.deepEqual(state.milestones, []);
   assert.deepEqual(state.completed, []);
 });
@@ -1743,7 +2372,11 @@ test("a dispatch failure keeps another verified model from the same agent usable
 test("a dispatch failure drops sibling models that the targeted refresh no longer verifies", async () => {
   const invalidated = [];
   let failNext = true;
-  const refreshedCapabilities = [parentRecord, workerRoute("Codex", "gpt-5"), workerRoute("Grok", "grok-4")];
+  const refreshedCapabilities = [
+    parentRecord,
+    workerRoute("Codex", "gpt-5"),
+    workerRoute("Grok", "grok-4"),
+  ];
   const deps = makeDeps({
     invalidateCapabilities: async (agent) => {
       invalidated.push(agent);
@@ -1796,12 +2429,15 @@ test("parallel dispatch failures serialize targeted refreshes before handoff", a
   const deps = makeDeps({
     invalidateCapabilities: async (agent) => {
       invalidated.push(agent);
-      refreshedCapabilities = refreshedCapabilities.filter((record) => record.agent !== agent);
+      refreshedCapabilities = refreshedCapabilities.filter(
+        (record) => record.agent !== agent,
+      );
       return refreshedCapabilities;
     },
     dispatch: async (job) => {
       deps.dispatched.push(job);
-      if (job.route.agent === "Claude" || job.route.agent === "Grok") throw new Error("model-unavailable");
+      if (job.route.agent === "Claude" || job.route.agent === "Grok")
+        throw new Error("model-unavailable");
       return { pid: 9400 + deps.dispatched.length };
     },
   });
@@ -1836,7 +2472,11 @@ test("parallel dispatch failures serialize targeted refreshes before handoff", a
     [{ agent: "Gemini", model: "gemini-3" }],
   );
   assert.deepEqual(
-    state.workerExecutions.map(({ agent, model, status }) => ({ agent, model, status })),
+    state.workerExecutions.map(({ agent, model, status }) => ({
+      agent,
+      model,
+      status,
+    })),
     [
       { agent: "Gemini", model: "gemini-3", status: "running" },
       { agent: "Gemini", model: "gemini-3", status: "running" },
@@ -1857,7 +2497,10 @@ test("a dispatch failure fails closed when its capability cache cannot be invali
   const result = await run.invoke(makeInput({ items: [item(1)] }));
 
   assert.equal(result.runStatus, "failed");
-  assert.equal(result.failureReason, "capability-invalidation-failed:cache-read-only");
+  assert.equal(
+    result.failureReason,
+    "capability-invalidation-failed:cache-read-only",
+  );
   assert.deepEqual(result.unavailableModels, ["sonnet"]);
 });
 
@@ -1874,7 +2517,10 @@ test("two pool records for one runtime do not count as distinct routes", async (
   const state = await run.state();
   // The collapse must be detected and recorded, not pass silently as two
   // "distinct" routes just because the selectors differ.
-  assert.match(state.roleStates[0].degraded, /^same-route:\w+:no-distinct-route-left$/);
+  assert.match(
+    state.roleStates[0].degraded,
+    /^same-route:\w+:no-distinct-route-left$/,
+  );
 
   await run.resume({ type: "role-complete", issue: 1, role: "implementer" });
   const implementer = run.deps.dispatched[0];
@@ -1888,7 +2534,12 @@ test("a blocked run reports why in the summary", async () => {
   const run = makeRun();
   await run.invoke(roleInput([item(1)]));
   await run.resume({ type: "role-complete", issue: 1, role: "implementer" });
-  const result = await run.resume({ type: "role-complete", issue: 1, role: "reviewer", verdict: "REJECTED" });
+  const result = await run.resume({
+    type: "role-complete",
+    issue: 1,
+    role: "reviewer",
+    verdict: "REJECTED",
+  });
   assert.equal(result.runStatus, "blocked");
   assert.deepEqual(result.summary.roles, [
     {
@@ -1906,7 +2557,9 @@ test("a blocked run reports why in the summary", async () => {
 /* Shadow triage fail-closed and role-program boundaries (#536)        */
 /* ------------------------------------------------------------------ */
 
-const recommendingTriage = async (input) => ({ result: shadowRecommendation(normalizeTriageInput(input)) });
+const recommendingTriage = async (input) => ({
+  result: shadowRecommendation(normalizeTriageInput(input)),
+});
 
 test("shadow reviewer dispatch keeps the pool when a later CLI refresh fails", async () => {
   let refreshes = 0;
@@ -1931,10 +2584,13 @@ test("shadow reviewer dispatch keeps the pool when a later CLI refresh fails", a
   assert.equal(refreshes, 2);
   assert.equal(deps.dispatched.at(-1).role, "reviewer");
   // The comparison stays on the first dispatched route, not the reviewer's.
-  assert.deepEqual(buildSummary(state, "running").shadowTriage[0].assignedRoute, {
-    agent: implementer.route.agent,
-    model: implementer.route.model,
-  });
+  assert.deepEqual(
+    buildSummary(state, "running").shadowTriage[0].assignedRoute,
+    {
+      agent: implementer.route.agent,
+      model: implementer.route.model,
+    },
+  );
 });
 
 test("a failed CLI refresh for a new selection fails the shadow run closed", async () => {
@@ -1947,8 +2603,13 @@ test("a failed CLI refresh for a new selection fails the shadow run closed", asy
     runTriage: recommendingTriage,
   });
   const run = makeRun({ deps });
-  await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
-  assert.equal((await run.state()).failureReason, "triage-route-refresh-failed");
+  await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
+  assert.equal(
+    (await run.state()).failureReason,
+    "triage-route-refresh-failed",
+  );
   assert.equal(deps.dispatched.length, 0);
 });
 
@@ -1965,8 +2626,13 @@ test("a failed CLI refresh during dispatch preflight fails the shadow run closed
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
-  assert.equal((await run.state()).failureReason, "triage-route-refresh-failed");
+  await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
+  assert.equal(
+    (await run.state()).failureReason,
+    "triage-route-refresh-failed",
+  );
   assert.equal(deps.dispatched.length, 0);
 });
 
@@ -1974,15 +2640,24 @@ test("an Issue edited again after a stale-input re-prompt fails the shadow run c
   let edits = 0;
   const deps = makeDeps({
     refreshTriageRoutes: async () => ({ capabilities: defaultCapabilities }),
-    fetchTriageRevision: async () => ({ updatedAt: `2026-07-21T00:00:0${++edits}.000Z` }),
+    fetchTriageRevision: async () => ({
+      updatedAt: `2026-07-21T00:00:0${++edits}.000Z`,
+    }),
     triageEvidence: async () => [],
     runTriage: recommendingTriage,
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  const paused = await run.invoke(makeInput({ items: [item(1)], config: { triage: shadowConfig } }));
-  assert.equal(paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason, "stale-input");
-  await run.resume({ assignments: [{ number: 1, agent: "Claude", model: "sonnet" }] });
+  const paused = await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: shadowConfig } }),
+  );
+  assert.equal(
+    paused.__interrupt__[0].value.assign.issues[0].shadowTriage.reason,
+    "stale-input",
+  );
+  await run.resume({
+    assignments: [{ number: 1, agent: "Claude", model: "sonnet" }],
+  });
   assert.equal((await run.state()).failureReason, "stale-input");
   assert.equal(deps.dispatched.length, 0);
 });
@@ -2000,9 +2675,14 @@ test("a programmatic shadow config without model or budget uses the normalized d
     verifyTriageRoute: async () => ({ ok: true }),
   });
   const run = makeRun({ deps });
-  await run.invoke(makeInput({ items: [item(1)], config: { triage: { mode: "shadow" } } }));
+  await run.invoke(
+    makeInput({ items: [item(1)], config: { triage: { mode: "shadow" } } }),
+  );
   assert.deepEqual(sent, [{ model: "jev-1.13.0", maxRequests: 20 }]);
-  assert.equal((await run.state()).triageByIssue[0].result.status, "recommended");
+  assert.equal(
+    (await run.state()).triageByIssue[0].result.status,
+    "recommended",
+  );
 });
 
 test("the file checkpointer rejects malformed triage budget or attempt sections", async () => {
@@ -2014,8 +2694,14 @@ test("the file checkpointer rejects malformed triage budget or attempt sections"
       ["budgets.json", { triageBudgets: { run: 3 } }],
     ])) {
       const file = path.join(directory, name);
-      await writeFile(file, JSON.stringify({ format, storage: {}, writes: {}, ...section }));
-      await assert.rejects(FileCheckpointSaver.load(file), /checkpoint-file-corrupt/);
+      await writeFile(
+        file,
+        JSON.stringify({ format, storage: {}, writes: {}, ...section }),
+      );
+      await assert.rejects(
+        FileCheckpointSaver.load(file),
+        /checkpoint-file-corrupt/,
+      );
     }
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -2026,26 +2712,48 @@ function assistedRun(overrides = {}) {
   let requests = 0;
   const deps = makeDeps({
     assistedApproval: async () => true,
-    fetchItems: async (config) => ({ items: config.selectors.issues.map((n) => item(Number(n))) }),
+    fetchItems: async (config) => ({
+      items: config.selectors.issues.map((n) => item(Number(n))),
+    }),
     refreshTriageRoutes: async () => ({ capabilities: defaultCapabilities }),
     fetchTriageRevision: async () => revision,
     triageEvidence: async () => [],
     verifyTriageRoute: async () => ({ ok: true }),
-    runTriage: async (input) => { requests++; return { result: shadowRecommendation(input) }; },
+    runTriage: async (input) => {
+      requests++;
+      return { result: shadowRecommendation(input) };
+    },
     ...overrides,
   });
   return { ...makeRun({ deps }), requests: () => requests };
 }
-const assistedInput = (overrides = {}) => makeInput({ items: [item(1)], config: {
-  triage: { ...shadowConfig, mode: "assisted" }, singleWorker: false, ...overrides,
-} });
+const assistedInput = (overrides = {}) =>
+  makeInput({
+    items: [item(1)],
+    config: {
+      triage: { ...shadowConfig, mode: "assisted" },
+      singleWorker: false,
+      ...overrides,
+    },
+  });
 const decisionFor = (prompt, action = "accept", fields = {}) => {
-  const result = prompt.__interrupt__[0].value.resolveTriage.issues[0].recommendation;
-  return { issue: result.issue, issueUpdatedAt: result.issueUpdatedAt,
-    policyVersion: result.policyVersion, routeSetHash: result.routeSetHash,
-    evidenceVersion: result.evidenceVersion, action,
-    reason: action === "accept" ? "accepted" : action === "fallback" ? "legacy-fallback" : "domain-review",
-    ...fields };
+  const result =
+    prompt.__interrupt__[0].value.resolveTriage.issues[0].recommendation;
+  return {
+    issue: result.issue,
+    issueUpdatedAt: result.issueUpdatedAt,
+    policyVersion: result.policyVersion,
+    routeSetHash: result.routeSetHash,
+    evidenceVersion: result.evidenceVersion,
+    action,
+    reason:
+      action === "accept"
+        ? "accepted"
+        : action === "fallback"
+          ? "legacy-fallback"
+          : "domain-review",
+    ...fields,
+  };
 };
 
 test("assisted high adoption recomputes the provisional direct-review before any role starts", async () => {
@@ -2053,46 +2761,77 @@ test("assisted high adoption recomputes the provisional direct-review before any
   const paused = await run.invoke(assistedInput());
   assert.equal(run.deps.dispatched.length, 0);
   assert.deepEqual((await run.state()).roleStates, []);
-  assert.equal((await run.state()).plan.runnable[0].executionMode, "direct-review");
+  assert.equal(
+    (await run.state()).plan.runnable[0].executionMode,
+    "direct-review",
+  );
   await run.resume({ triageDecisions: [decisionFor(paused)] });
   const state = await run.state();
-  assert.deepEqual(state.roleStates[0].program, ["planner", "implementer", "reviewer"]);
+  assert.deepEqual(state.roleStates[0].program, [
+    "planner",
+    "implementer",
+    "reviewer",
+  ]);
   assert.equal(run.deps.dispatched[0].role, "planner");
   assert.equal(state.plan.runnable[0].riskCategory, "high");
   assert.equal(run.requests(), 1);
-  assert.notEqual(state.roleStates[0].routes.implementer.agent, state.roleStates[0].routes.reviewer.agent);
+  assert.notEqual(
+    state.roleStates[0].routes.implementer.agent,
+    state.roleStates[0].routes.reviewer.agent,
+  );
 });
 
 test("assisted autoAssign cannot adopt a recommendation or skip manual fallback", async () => {
   const run = assistedRun();
   await run.invoke(assistedInput());
   const manual = await run.resume({});
-  assert.equal(manual.__interrupt__[0].value.assign.issues[0].requiresManualAssignment, true);
+  assert.equal(
+    manual.__interrupt__[0].value.assign.issues[0].requiresManualAssignment,
+    true,
+  );
   assert.equal(run.deps.dispatched.length, 0);
-  assert.equal((await run.state()).plan.runnable[0].executionMode, "direct-review");
+  assert.equal(
+    (await run.state()).plan.runnable[0].executionMode,
+    "direct-review",
+  );
 });
 
 test("uncertain risk/Size rejects accept and permits an explicit high override", async () => {
-  const run = assistedRun({ runTriage: async (input) => {
-    const result = shadowRecommendation(input);
-    result.risk.confidence = 0.4;
-    return { result };
-  } });
+  const run = assistedRun({
+    runTriage: async (input) => {
+      const result = shadowRecommendation(input);
+      result.risk.confidence = 0.4;
+      return { result };
+    },
+  });
   const first = await run.invoke(assistedInput());
   const again = await run.resume({ triageDecisions: [decisionFor(first)] });
-  assert.equal(again.__interrupt__[0].value.lastEventError, "triage-invalid-decision");
+  assert.equal(
+    again.__interrupt__[0].value.lastEventError,
+    "triage-invalid-decision",
+  );
   assert.equal(run.deps.dispatched.length, 0);
-  await run.resume({ triageDecisions: [decisionFor(again, "override", { riskCategory: "high", size: "S" })] });
+  await run.resume({
+    triageDecisions: [
+      decisionFor(again, "override", { riskCategory: "high", size: "S" }),
+    ],
+  });
   assert.equal(run.deps.dispatched[0].role, "planner");
 });
 
 test("an explicit direct-review override conflicts with adopted high risk", async () => {
   const run = assistedRun();
   const input = assistedInput();
-  input.items[0].modeOverride = { executionMode: "direct-review", roleProgram: ["implementer", "reviewer"] };
+  input.items[0].modeOverride = {
+    executionMode: "direct-review",
+    roleProgram: ["implementer", "reviewer"],
+  };
   const first = await run.invoke(input);
   const again = await run.resume({ triageDecisions: [decisionFor(first)] });
-  assert.equal(again.__interrupt__[0].value.lastEventError, "triage-mode-conflict");
+  assert.equal(
+    again.__interrupt__[0].value.lastEventError,
+    "triage-mode-conflict",
+  );
   assert.equal(run.deps.dispatched.length, 0);
 });
 
@@ -2101,16 +2840,24 @@ test("assisted single-worker requests display shadow-only instead of starting ro
   await run.invoke(assistedInput({ singleWorker: true }));
   const state = await run.state();
   assert.equal(state.config.triage.mode, "shadow");
-  assert.equal(buildSummary(state, "in-progress").triageNotice, "triage-single-worker-shadow");
+  assert.equal(
+    buildSummary(state, "in-progress").triageNotice,
+    "triage-single-worker-shadow",
+  );
   assert.deepEqual(state.roleStates, []);
 });
 
 test("a failed exact route retains high risk and requires an explicit fresh assignment", async () => {
   let checks = 0;
-  const run = assistedRun({ verifyTriageRoute: async () => ({ ok: ++checks > 1 }) });
+  const run = assistedRun({
+    verifyTriageRoute: async () => ({ ok: ++checks > 1 }),
+  });
   const first = await run.invoke(assistedInput());
   const manual = await run.resume({ triageDecisions: [decisionFor(first)] });
-  assert.equal(manual.__interrupt__[0].value.assign.issues[0].requiresManualAssignment, true);
+  assert.equal(
+    manual.__interrupt__[0].value.assign.issues[0].requiresManualAssignment,
+    true,
+  );
   const route = manual.__interrupt__[0].value.assign.workerRoutes[0];
   await run.resume({ assignments: [{ number: 1, ...route }] });
   const state = await run.state();
@@ -2122,8 +2869,10 @@ test("a failed exact route retains high risk and requires an explicit fresh assi
 
 test("an Issue edit before first assisted dispatch is re-evaluated only once", async () => {
   let reads = 0;
-  const run = assistedRun({ fetchTriageRevision: async () => ++reads === 1 ? revision :
-    { updatedAt: "2026-07-22T00:00:00.000Z" } });
+  const run = assistedRun({
+    fetchTriageRevision: async () =>
+      ++reads === 1 ? revision : { updatedAt: "2026-07-22T00:00:00.000Z" },
+  });
   const first = await run.invoke(assistedInput());
   const again = await run.resume({ triageDecisions: [decisionFor(first)] });
   assert.ok(again.__interrupt__[0].value.resolveTriage);
@@ -2136,11 +2885,20 @@ test("an Issue edit before first assisted dispatch is re-evaluated only once", a
 test("an adopted override of a provider fallback is invalidated by an Issue edit", async () => {
   let reads = 0;
   const run = assistedRun({
-    fetchTriageRevision: async () => ({ updatedAt: ++reads === 1 ? revision.updatedAt : "2026-07-22T00:00:00.000Z" }),
-    runTriage: async (input) => ({ result: fallbackResult(triageContext(input), "provider-error") }),
+    fetchTriageRevision: async () => ({
+      updatedAt:
+        ++reads === 1 ? revision.updatedAt : "2026-07-22T00:00:00.000Z",
+    }),
+    runTriage: async (input) => ({
+      result: fallbackResult(triageContext(input), "provider-error"),
+    }),
   });
   const first = await run.invoke(assistedInput());
-  const again = await run.resume({ triageDecisions: [decisionFor(first, "override", { riskCategory: "high", size: "S" })] });
+  const again = await run.resume({
+    triageDecisions: [
+      decisionFor(first, "override", { riskCategory: "high", size: "S" }),
+    ],
+  });
   assert.ok(again.__interrupt__[0].value.resolveTriage);
   assert.equal(run.deps.dispatched.length, 0);
   assert.equal((await run.state()).triageByIssue[0].preflightAttempts, 1);
@@ -2149,15 +2907,22 @@ test("an adopted override of a provider fallback is invalidated by an Issue edit
 test("a changed pool discards a pre-supplied assignment and waits for a fresh manual choice", async () => {
   let refreshes = 0;
   const enlarged = [...defaultCapabilities, workerRoute("Claude", "new-model")];
-  const run = assistedRun({ refreshTriageRoutes: async () => ({
-    capabilities: ++refreshes === 1 ? defaultCapabilities : enlarged,
-  }) });
-  const first = await run.invoke({ ...assistedInput(), proposedAssignments: [{ number: 1, agent: "Grok", model: "grok-4" }] });
+  const run = assistedRun({
+    refreshTriageRoutes: async () => ({
+      capabilities: ++refreshes === 1 ? defaultCapabilities : enlarged,
+    }),
+  });
+  const first = await run.invoke({
+    ...assistedInput(),
+    proposedAssignments: [{ number: 1, agent: "Grok", model: "grok-4" }],
+  });
   const manual = await run.resume({ triageDecisions: [decisionFor(first)] });
   assert.ok(manual.__interrupt__[0].value.assign);
   assert.equal(run.deps.dispatched.length, 0);
   assert.deepEqual((await run.state()).proposedAssignments, []);
-  await run.resume({ assignments: [{ number: 1, agent: "Grok", model: "grok-4" }] });
+  await run.resume({
+    assignments: [{ number: 1, agent: "Grok", model: "grok-4" }],
+  });
   assert.equal(run.deps.dispatched[0].role, "planner");
   assert.equal(run.requests(), 1);
 });
@@ -2165,12 +2930,25 @@ test("a changed pool discards a pre-supplied assignment and waits for a fresh ma
 test("a newly added security label overrides a low re-evaluation before dispatch", async () => {
   let reads = 0;
   const run = assistedRun({
-    fetchTriageRevision: async () => ({ updatedAt: ++reads === 1 ? revision.updatedAt : "2026-07-22T00:00:00.000Z" }),
-    fetchItems: async () => ({ items: [item(1, [], { riskCategory: "high" })] }),
+    fetchTriageRevision: async () => ({
+      updatedAt:
+        ++reads === 1 ? revision.updatedAt : "2026-07-22T00:00:00.000Z",
+    }),
+    fetchItems: async () => ({
+      items: [item(1, [], { riskCategory: "high" })],
+    }),
     runTriage: async (input) => {
       const result = shadowRecommendation(input);
-      return { result: { ...result, risk: { choice: "low", confidence: 1,
-        probabilities: { low: 1, medium: 0, high: 0, critical: 0 } } } };
+      return {
+        result: {
+          ...result,
+          risk: {
+            choice: "low",
+            confidence: 1,
+            probabilities: { low: 1, medium: 0, high: 0, critical: 0 },
+          },
+        },
+      };
     },
   });
   const first = await run.invoke(assistedInput());
@@ -2186,8 +2964,13 @@ test("a newly added security label overrides a low re-evaluation before dispatch
 test("stale recovery fails closed when current Issue metadata cannot be verified", async () => {
   let reads = 0;
   const run = assistedRun({
-    fetchTriageRevision: async () => ({ updatedAt: ++reads === 1 ? revision.updatedAt : "2026-07-22T00:00:00.000Z" }),
-    fetchItems: async () => { throw new Error("fake-private-error"); },
+    fetchTriageRevision: async () => ({
+      updatedAt:
+        ++reads === 1 ? revision.updatedAt : "2026-07-22T00:00:00.000Z",
+    }),
+    fetchItems: async () => {
+      throw new Error("fake-private-error");
+    },
   });
   const first = await run.invoke(assistedInput());
   await run.resume({ triageDecisions: [decisionFor(first)] });
@@ -2200,12 +2983,17 @@ test("stale recovery fails closed when current Issue metadata cannot be verified
 
 test("approved assisted configuration forwards explicit private consent to the isolated shadow adapter", async () => {
   let childConfig;
-  const run = assistedRun({ runTriage: async (input, config) => {
-    childConfig = config;
-    return { result: shadowRecommendation(input) };
-  } });
-  const first = await run.invoke(assistedInput({ triage: { ...shadowConfig,
-    mode: "assisted", allowPrivateIssues: true } }));
+  const run = assistedRun({
+    runTriage: async (input, config) => {
+      childConfig = config;
+      return { result: shadowRecommendation(input) };
+    },
+  });
+  const first = await run.invoke(
+    assistedInput({
+      triage: { ...shadowConfig, mode: "assisted", allowPrivateIssues: true },
+    }),
+  );
   assert.equal(childConfig.mode, "shadow");
   assert.equal(childConfig.allowPrivateIssues, true);
   assert.equal(run.deps.dispatched.length, 0);

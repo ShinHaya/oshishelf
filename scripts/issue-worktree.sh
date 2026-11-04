@@ -9,9 +9,18 @@ Usage:
   scripts/issue-worktree.sh create <issue> [slug] --agent <agent> --session <id> [--repo <path>]
   scripts/issue-worktree.sh status <issue> [--json] [--repo <path>]
   scripts/issue-worktree.sh acquire <issue> --agent <agent> --session <id> [--repo <path>]
+  scripts/issue-worktree.sh acquire <issue> --session <id> --heartbeat [--repo <path>]
   scripts/issue-worktree.sh handoff <issue> --agent <agent> --session <id> [--repo <path>]
   scripts/issue-worktree.sh release <issue> --session <id> [--repo <path>]
   scripts/issue-worktree.sh cleanup <issue> --pr <number> [--repo <path>]
+
+A lease is held only until owner.expires_at_epoch. The owning session keeps it
+by renewing with acquire before the expiry (a heartbeat). An expired lease can
+be handed off even when the recorded owner PID is still running.
+
+Environment:
+  ISSUE_WORKTREE_LEASE_TTL_SEC  lease lifetime in seconds (default 3600)
+  ISSUE_WORKTREE_OWNER_PID      owner PID to record (default: the caller's parent)
 
 The helper never stashes, commits, resets, cleans, or force-removes work.
 EOF
@@ -56,9 +65,20 @@ utc_now() {
   date -u '+%Y-%m-%dT%H:%M:%SZ'
 }
 
+LEASE_TTL=${ISSUE_WORKTREE_LEASE_TTL_SEC:-3600}
+is_uint "$LEASE_TTL" && [ "$LEASE_TTL" -gt 0 ] \
+  || die "ISSUE_WORKTREE_LEASE_TTL_SEC must be a positive integer"
+
 lease_expiry() {
-  printf '%s\n' "$(($(date +%s) + ${ISSUE_WORKTREE_LEASE_TTL_SEC:-3600}))"
+  printf '%s\n' "$(($(date +%s) + LEASE_TTL))"
 }
+
+# The PID recorded as the lease owner. A launcher such as issue-dispatch.mjs
+# passes a process that lives exactly as long as the worker, because $PPID can
+# be a long-running server (opencode serve, Codex app-server) that outlives it.
+OWNER_PID=${ISSUE_WORKTREE_OWNER_PID:-$PPID}
+is_uint "$OWNER_PID" && [ "$OWNER_PID" -gt 0 ] \
+  || die "ISSUE_WORKTREE_OWNER_PID must be a positive integer"
 
 COMMAND=${1:-}
 ISSUE=${2:-}
@@ -75,6 +95,7 @@ SESSION=''
 PR=''
 REPO=''
 JSON=0
+HEARTBEAT=0
 
 if [ "$COMMAND" = "create" ] && [ "$#" -gt 0 ] && [ "${1#--}" = "$1" ]; then
   SLUG=$1
@@ -88,6 +109,7 @@ while [ "$#" -gt 0 ]; do
     --pr) [ "$#" -ge 2 ] || die "--pr requires a value"; PR=$2; shift 2 ;;
     --repo) [ "$#" -ge 2 ] || die "--repo requires a value"; REPO=$2; shift 2 ;;
     --json) JSON=1; shift ;;
+    --heartbeat) HEARTBEAT=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -153,11 +175,17 @@ reclaim_stale_state_lock() {
 }
 
 lock_state() {
-  local now
-  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-    reclaim_stale_state_lock || die "Issue #$ISSUE lifecycle state is locked by another process"
-    mkdir "$LOCK_DIR" 2>/dev/null || die "Issue #$ISSUE lifecycle state is locked by another process"
-  fi
+  local now deadline
+  # Writers hold the lock for well under a second. Wait briefly so a periodic
+  # lease heartbeat cannot make a concurrent worker command fail.
+  deadline=$(($(date +%s) + ${ISSUE_WORKTREE_STATE_LOCK_WAIT_SEC:-10}))
+  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+    if reclaim_stale_state_lock; then
+      continue
+    fi
+    [ "$(date +%s)" -lt "$deadline" ] || die "Issue #$ISSUE lifecycle state is locked by another process"
+    sleep 0.2
+  done
   now=$(date +%s)
   LOCK_TOKEN="$$:$now"
   printf '%s\n' "$LOCK_TOKEN" > "$LOCK_DIR/owner"
@@ -187,6 +215,44 @@ write_state() {
   mv "$tmp" "$STATE_FILE"
 }
 
+# Succeeds while the recorded owner still holds the lease: it is active, not
+# expired, and its owner process is alive on this host. Within the expiry the
+# PID decides as before; after the expiry the lease is free whatever the PID
+# says, so a long-running server recorded as the owner cannot pin it forever.
+# Metadata without an expiry (older schema) falls back to the PID check alone.
+lease_is_held() {
+  local active host pid expires
+  active=$(jq -r .owner.active "$STATE_FILE")
+  host=$(jq -r '.owner.host // "unknown"' "$STATE_FILE")
+  pid=$(jq -r '.owner.pid // 0' "$STATE_FILE")
+  expires=$(jq -r '.owner.expires_at_epoch // 0' "$STATE_FILE")
+  [ "$active" = "true" ] || return 1
+  if is_uint "$expires" && [ "$expires" -gt 0 ] && [ "$(date +%s)" -ge "$expires" ]; then
+    return 1
+  fi
+  [ "$host" = "$(hostname 2>/dev/null || printf unknown)" ] || return 1
+  is_uint "$pid" && [ "$pid" -gt 0 ] || return 1
+  kill -0 "$pid" 2>/dev/null
+}
+
+# One line naming the recorded owner process and the lease expiry, so an
+# operator can see when a long-running server is recorded as the owner.
+describe_lease_owner() {
+  local pid expires command expiry remaining
+  pid=$(jq -r '.owner.pid // 0' "$STATE_FILE")
+  expires=$(jq -r '.owner.expires_at_epoch // 0' "$STATE_FILE")
+  command=$(ps -p "$pid" -o comm= 2>/dev/null | head -n 1 | sed 's/^ *//') || command=''
+  [ -n "$command" ] || command=unknown
+  if is_uint "$expires" && [ "$expires" -gt 0 ]; then
+    expiry=$(date -u -r "$expires" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
+      || date -u -d "@$expires" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
+      || printf '%s' "$expires")
+    remaining=$((expires - $(date +%s)))
+    printf 'pid=%s command=%s expires_at=%s (in %ss)\n' "$pid" "$command" "$expiry" "$remaining"
+  else
+    printf 'pid=%s command=%s expires_at=none\n' "$pid" "$command"
+  fi
+}
 
 git_operation() {
   local worktree=$1 gitdir
@@ -310,7 +376,7 @@ case "$COMMAND" in
     JSON_VALUE=$(jq -n -c \
       --argjson issue "$ISSUE" --arg slug "$SLUG" --arg branch "$BRANCH" --arg worktree "$WORKTREE" \
       --arg agent "$AGENT" --arg session_hash "$HASH" --arg now "$NOW" --arg host "$HOST" --arg head "$HEAD" \
-      --argjson owner_pid "$PPID" --argjson expires_at_epoch "$EXPIRES" \
+      --argjson owner_pid "$OWNER_PID" --argjson expires_at_epoch "$EXPIRES" \
       '{schema:2,issue:$issue,slug:$slug,branch:$branch,worktree:$worktree,status:"active",owner:{agent:$agent,session_hash:$session_hash,active:true,generation:1,host:$host,pid:$owner_pid,expires_at_epoch:$expires_at_epoch,updated_at:$now},handoff_epoch:1,history:[{event:"create",epoch:1,agent:$agent,session_hash:$session_hash,head:$head,at:$now}] }')
     write_state "$JSON_VALUE"
     unlock_state
@@ -327,7 +393,12 @@ case "$COMMAND" in
     ;;
 
   acquire)
-    [ -n "$AGENT" ] || die "acquire requires --agent"
+    # Without --heartbeat: (re)acquire this session's lease and extend it.
+    # Run it before long work and before every commit and push; a failure
+    # means another session took the lease over, so stop writing.
+    # With --heartbeat: only extend a lease this session still actively holds.
+    # It never reactivates a released lease and never takes one over.
+    [ "$HEARTBEAT" = "1" ] || [ -n "$AGENT" ] || die "acquire requires --agent"
     [ -n "$SESSION" ] || die "acquire requires --session"
     lock_state
     require_state
@@ -336,11 +407,17 @@ case "$COMMAND" in
     if [ "$OLD_HASH" != "$HASH" ]; then
       die "lease belongs to another session; use handoff so the epoch is reset"
     fi
+    STATUS_VALUE=$(jq -r .status "$STATE_FILE")
+    [ "$STATUS_VALUE" = "active" ] || die "Issue #$ISSUE lifecycle status is $STATUS_VALUE; acquire refused"
+    if [ "$HEARTBEAT" = "1" ]; then
+      [ "$(jq -r .owner.active "$STATE_FILE")" = "true" ] || die "lease was released; heartbeat refused"
+      AGENT=$(jq -r .owner.agent "$STATE_FILE")
+    fi
     NOW=$(utc_now)
     HOST=$(hostname 2>/dev/null || printf unknown)
     EXPIRES=$(lease_expiry)
     VALUE=$(jq -c --arg agent "$AGENT" --arg hash "$HASH" --arg now "$NOW" --arg host "$HOST" \
-      --argjson pid "$PPID" --argjson expires "$EXPIRES" \
+      --argjson pid "$OWNER_PID" --argjson expires "$EXPIRES" \
       '.owner.agent=$agent | .owner.session_hash=$hash | .owner.active=true | .owner.host=$host | .owner.pid=$pid | .owner.expires_at_epoch=$expires | .owner.updated_at=$now' "$STATE_FILE")
     write_state "$VALUE"
     unlock_state
@@ -362,19 +439,15 @@ case "$COMMAND" in
       unlock_state
       exit 0
     fi
-    OLD_ACTIVE=$(jq -r .owner.active "$STATE_FILE")
-    OLD_HOST=$(jq -r '.owner.host // "unknown"' "$STATE_FILE")
-    OLD_PID=$(jq -r '.owner.pid // 0' "$STATE_FILE")
-    HOST=$(hostname 2>/dev/null || printf unknown)
-    if [ "$OLD_ACTIVE" = "true" ] && [ "$OLD_HOST" = "$HOST" ] \
-       && [ "$OLD_PID" -gt 0 ] && kill -0 "$OLD_PID" 2>/dev/null; then
-      die "active lease owner process is still running (pid=$OLD_PID); handoff refused"
+    if lease_is_held; then
+      die "active lease owner process is still running ($(describe_lease_owner)); handoff refused until the owner exits or the lease expires"
     fi
+    HOST=$(hostname 2>/dev/null || printf unknown)
     NOW=$(utc_now)
     HEAD=$(git -C "$WORKTREE" rev-parse HEAD)
     EXPIRES=$(lease_expiry)
     VALUE=$(jq -c --arg agent "$AGENT" --arg hash "$HASH" --arg now "$NOW" --arg head "$HEAD" --arg host "$HOST" \
-      --argjson pid "$PPID" --argjson expires "$EXPIRES" \
+      --argjson pid "$OWNER_PID" --argjson expires "$EXPIRES" \
       '.handoff_epoch += 1
        | .owner.agent=$agent | .owner.session_hash=$hash | .owner.active=true
        | .owner.generation += 1 | .owner.host=$host | .owner.pid=$pid | .owner.expires_at_epoch=$expires | .owner.updated_at=$now

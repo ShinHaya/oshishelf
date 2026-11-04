@@ -38,7 +38,7 @@ duplicating them.
    failure / exception / interruption side is stated too (errors, external
    blockers the system cannot resolve on its own, cancellation, partial
    completion). Flag happy-path-only requirements.
-5. **Scope explicit** — what is *not* included is stated, and unstated
+5. **Scope explicit** — what is _not_ included is stated, and unstated
    assumptions (network availability, prior verification, existing data) are
    surfaced instead of implied.
 

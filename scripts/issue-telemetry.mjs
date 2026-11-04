@@ -23,7 +23,11 @@ const PROHIBITED_FIELDS = new Set([
   "pii",
 ]);
 
-const VALID_EVENT_TYPES = new Set(["route_decision", "role_execution", "terminal_outcome"]);
+const VALID_EVENT_TYPES = new Set([
+  "route_decision",
+  "role_execution",
+  "terminal_outcome",
+]);
 const VALID_AVAILABILITY = new Set(["exact", "estimate", "unavailable"]);
 const VALID_MODES = new Set(["single-agent", "multi-agent", "bounded-retry"]);
 const VALID_EXIT_CLASSIFICATIONS = new Set([
@@ -87,9 +91,15 @@ export function sanitizeTelemetryConfig(rawConfig = {}) {
     sinkType: ["jsonl", "sqlite", "both", "noop"].includes(config.sinkType)
       ? config.sinkType
       : DEFAULT_TELEMETRY_CONFIG.sinkType,
-    telemetryDir: String(config.telemetryDir || DEFAULT_TELEMETRY_CONFIG.telemetryDir),
-    jsonlFileName: String(config.jsonlFileName || DEFAULT_TELEMETRY_CONFIG.jsonlFileName),
-    sqliteFileName: String(config.sqliteFileName || DEFAULT_TELEMETRY_CONFIG.sqliteFileName),
+    telemetryDir: String(
+      config.telemetryDir || DEFAULT_TELEMETRY_CONFIG.telemetryDir,
+    ),
+    jsonlFileName: String(
+      config.jsonlFileName || DEFAULT_TELEMETRY_CONFIG.jsonlFileName,
+    ),
+    sqliteFileName: String(
+      config.sqliteFileName || DEFAULT_TELEMETRY_CONFIG.sqliteFileName,
+    ),
     retentionDays:
       typeof config.retentionDays === "number" && config.retentionDays > 0
         ? config.retentionDays
@@ -125,7 +135,10 @@ export class JsonlTelemetrySink extends TelemetrySink {
   constructor(config = {}) {
     super();
     this.config = sanitizeTelemetryConfig(config);
-    this.filePath = path.join(this.config.telemetryDir, this.config.jsonlFileName);
+    this.filePath = path.join(
+      this.config.telemetryDir,
+      this.config.jsonlFileName,
+    );
   }
 
   async emit(rawEvent) {
@@ -148,18 +161,58 @@ export class JsonlTelemetrySink extends TelemetrySink {
       await fs.appendFile(this.filePath, line, "utf8");
     } catch (err) {
       // Non-blocking degradation
-      console.warn(`[TelemetrySink:JSONL] Non-blocking emission failure: ${err.message}`);
+      console.warn(
+        `[TelemetrySink:JSONL] Non-blocking emission failure: ${err.message}`,
+      );
     }
   }
 
   async _rotate() {
     try {
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const rotatedPath = path.join(
-        this.config.telemetryDir,
-        `${this.config.jsonlFileName}.${timestamp}`
-      );
-      await fs.rename(this.filePath, rotatedPath);
+      const prefix = `${this.config.jsonlFileName}.`;
+      const archives = (await fs.readdir(this.config.telemetryDir))
+        .filter(
+          (file) =>
+            file.startsWith(prefix) &&
+            /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(?:\.\d+)?$/.test(
+              file.slice(prefix.length),
+            ),
+        )
+        .sort((a, b) => a.localeCompare(b));
+      const latest = archives.at(-1)?.slice(prefix.length);
+      // Preserve lexical chronology even after a restart or a clock rollback.
+      const stamp =
+        latest && latest.slice(0, timestamp.length) > timestamp
+          ? latest.slice(0, timestamp.length)
+          : timestamp;
+      let sequence = latest?.startsWith(stamp)
+        ? BigInt(latest.slice(stamp.length + 1) || "0") + 1n
+        : 0n;
+      while (true) {
+        const suffix =
+          sequence === 0n ? "" : `.${String(sequence).padStart(16, "0")}`;
+        const rotatedPath = path.join(
+          this.config.telemetryDir,
+          `${prefix}${stamp}${suffix}`,
+        );
+        try {
+          // Reserve the name without overwriting an archive, then move the
+          // active file atomically. Never leave an archive linked to the active inode.
+          const reservation = await fs.open(rotatedPath, "wx");
+          await reservation.close();
+          try {
+            await fs.rename(this.filePath, rotatedPath);
+          } catch (err) {
+            await fs.unlink(rotatedPath).catch(() => {});
+            throw err;
+          }
+          break;
+        } catch (err) {
+          if (err.code !== "EEXIST") throw err;
+          sequence += 1n;
+        }
+      }
 
       // Prune old rotated files if exceeding rotationMaxFiles (oldest first by name)
       const files = await fs.readdir(this.config.telemetryDir);
@@ -169,7 +222,9 @@ export class JsonlTelemetrySink extends TelemetrySink {
 
       while (rotatedFiles.length > this.config.rotationMaxFiles) {
         const oldest = rotatedFiles.shift();
-        await fs.unlink(path.join(this.config.telemetryDir, oldest)).catch(() => {});
+        await fs
+          .unlink(path.join(this.config.telemetryDir, oldest))
+          .catch(() => {});
       }
     } catch (err) {
       console.warn(`[TelemetrySink:JSONL] Rotation error: ${err.message}`);
@@ -191,7 +246,10 @@ export class JsonlTelemetrySink extends TelemetrySink {
 
       const events = [];
       for (const file of jsonlFiles) {
-        const content = await fs.readFile(path.join(this.config.telemetryDir, file), "utf8");
+        const content = await fs.readFile(
+          path.join(this.config.telemetryDir, file),
+          "utf8",
+        );
         const lines = content.split("\n").filter((l) => l.trim());
         for (const line of lines) {
           try {
@@ -205,7 +263,9 @@ export class JsonlTelemetrySink extends TelemetrySink {
       return events;
     } catch (err) {
       if (err.code === "ENOENT") return [];
-      console.warn(`[TelemetrySink:JSONL] Error reading events: ${err.message}`);
+      console.warn(
+        `[TelemetrySink:JSONL] Error reading events: ${err.message}`,
+      );
       return [];
     }
   }
@@ -218,7 +278,10 @@ export class SqliteTelemetrySink extends TelemetrySink {
   constructor(config = {}) {
     super();
     this.config = sanitizeTelemetryConfig(config);
-    this.dbPath = path.join(this.config.telemetryDir, this.config.sqliteFileName);
+    this.dbPath = path.join(
+      this.config.telemetryDir,
+      this.config.sqliteFileName,
+    );
     this.initialized = false;
   }
 
@@ -243,7 +306,9 @@ export class SqliteTelemetrySink extends TelemetrySink {
       this.initialized = true;
     } catch (err) {
       // If sqlite3 CLI is missing or fails, mark initialized so we degrade safely
-      console.warn(`[TelemetrySink:SQLite] Initialization warning (falling back / non-blocking): ${err.message}`);
+      console.warn(
+        `[TelemetrySink:SQLite] Initialization warning (falling back / non-blocking): ${err.message}`,
+      );
       this.initialized = true; // prevent repeated retries if binary missing
       this.disabledFallback = true;
     }
@@ -257,18 +322,21 @@ export class SqliteTelemetrySink extends TelemetrySink {
 
       const event = validateTelemetryEvent(rawEvent);
       // Properly quote and escape strings and numbers for sqlite3 CLI execution
-      const escapeSql = (str) => String(str).replace(/'/g, "''").replaceAll("\0", "");
+      const escapeSql = (str) =>
+        String(str).replace(/'/g, "''").replaceAll("\0", "");
       const sql = `INSERT OR REPLACE INTO telemetry_events (event_id, correlation_id, occurred_at, event_type, issue_number, payload_json) VALUES ('${escapeSql(
-        event.eventId
+        event.eventId,
       )}', '${escapeSql(event.correlationId)}', '${escapeSql(
-        event.occurredAt
+        event.occurredAt,
       )}', '${escapeSql(event.type)}', ${Number(event.issueNumber) || 0}, '${escapeSql(
-        JSON.stringify(event.payload)
+        JSON.stringify(event.payload),
       )}');`;
 
       await execFileAsync("sqlite3", [this.dbPath, sql]);
     } catch (err) {
-      console.warn(`[TelemetrySink:SQLite] Non-blocking emission failure: ${err.message}`);
+      console.warn(
+        `[TelemetrySink:SQLite] Non-blocking emission failure: ${err.message}`,
+      );
     }
   }
 
@@ -279,7 +347,11 @@ export class SqliteTelemetrySink extends TelemetrySink {
       if (this.disabledFallback) return [];
 
       const query = `SELECT event_id, correlation_id, occurred_at, event_type, issue_number, payload_json FROM telemetry_events ORDER BY occurred_at ASC;`;
-      const { stdout } = await execFileAsync("sqlite3", [this.dbPath, "-json", query]);
+      const { stdout } = await execFileAsync("sqlite3", [
+        this.dbPath,
+        "-json",
+        query,
+      ]);
       if (!stdout.trim()) return [];
 
       const rows = JSON.parse(stdout);
@@ -292,7 +364,7 @@ export class SqliteTelemetrySink extends TelemetrySink {
           type: row.event_type,
           issueNumber: Number(row.issue_number),
           payload: JSON.parse(row.payload_json),
-        })
+        }),
       );
     } catch {
       return [];
@@ -314,8 +386,8 @@ export class CompositeTelemetrySink extends TelemetrySink {
       this.sinks.map((sink) =>
         sink.emit(event).catch((err) => {
           console.warn(`[CompositeTelemetrySink] Sink error: ${err.message}`);
-        })
-      )
+        }),
+      ),
     );
   }
 
@@ -358,8 +430,12 @@ export function generateLLMOpsReport(events = []) {
   const validatedEvents = events.map(validateTelemetryEvent);
 
   const totalEvents = validatedEvents.length;
-  const roleExecutions = validatedEvents.filter((e) => e.type === "role_execution");
-  const terminalOutcomes = validatedEvents.filter((e) => e.type === "terminal_outcome");
+  const roleExecutions = validatedEvents.filter(
+    (e) => e.type === "role_execution",
+  );
+  const terminalOutcomes = validatedEvents.filter(
+    (e) => e.type === "terminal_outcome",
+  );
 
   // Terminal Success Rate by Execution Mode
   const modeStats = {}; // mode -> { total: 0, success: 0 }
@@ -428,7 +504,9 @@ export function generateLLMOpsReport(events = []) {
     }
 
     // Calculate latency
-    const timestamps = runEvents.map((e) => Date.parse(e.occurredAt)).filter((t) => !isNaN(t));
+    const timestamps = runEvents
+      .map((e) => Date.parse(e.occurredAt))
+      .filter((t) => !isNaN(t));
     if (timestamps.length > 1) {
       const duration = Math.max(...timestamps) - Math.min(...timestamps);
       latenciesMs.push(duration);
@@ -451,8 +529,10 @@ export function generateLLMOpsReport(events = []) {
     for (const m of [tokens.input, tokens.output, tokens.total]) {
       if (!m) continue;
       if (m.availability === "exact") byModeTokenUsage[mode].exact += m.value;
-      else if (m.availability === "estimate") byModeTokenUsage[mode].estimate += m.value;
-      else if (m.availability === "unavailable") byModeTokenUsage[mode].unavailable += 1;
+      else if (m.availability === "estimate")
+        byModeTokenUsage[mode].estimate += m.value;
+      else if (m.availability === "unavailable")
+        byModeTokenUsage[mode].unavailable += 1;
     }
   }
 
@@ -464,25 +544,38 @@ export function generateLLMOpsReport(events = []) {
     modeEfficiency[mode] = {
       terminalSuccessRatePercent: Number(rate.toFixed(1)),
       totalTokens: tokens,
-      successesPer100kTokens: tokens > 0 ? Number(((stats.success / tokens) * 100000).toFixed(2)) : 0,
+      successesPer100kTokens:
+        tokens > 0 ? Number(((stats.success / tokens) * 100000).toFixed(2)) : 0,
     };
   }
 
   latenciesMs.sort((a, b) => a - b);
-  const medianLatencyMs = latenciesMs.length ? latenciesMs[Math.floor(latenciesMs.length / 2)] : 0;
-  const p95LatencyMs = latenciesMs.length ? latenciesMs[Math.floor(latenciesMs.length * 0.95)] : 0;
+  const medianLatencyMs = latenciesMs.length
+    ? latenciesMs[Math.floor(latenciesMs.length / 2)]
+    : 0;
+  const p95LatencyMs = latenciesMs.length
+    ? latenciesMs[Math.floor(latenciesMs.length * 0.95)]
+    : 0;
 
   return {
     summary: {
       totalEvents,
       totalRuns: Object.keys(runsByCorrelation).length,
       terminalOutcomesCount: terminalOutcomes.length,
-      humanInterventionRatePercent: Object.keys(runsByCorrelation).length > 0
-        ? Number(((totalHumanInterventions / Object.keys(runsByCorrelation).length) * 100).toFixed(1))
-        : 0,
-      handoffSuccessRatePercent: runsWithHandoffs > 0
-        ? Number(((handoffsWithSuccess / runsWithHandoffs) * 100).toFixed(1))
-        : 0,
+      humanInterventionRatePercent:
+        Object.keys(runsByCorrelation).length > 0
+          ? Number(
+              (
+                (totalHumanInterventions /
+                  Object.keys(runsByCorrelation).length) *
+                100
+              ).toFixed(1),
+            )
+          : 0,
+      handoffSuccessRatePercent:
+        runsWithHandoffs > 0
+          ? Number(((handoffsWithSuccess / runsWithHandoffs) * 100).toFixed(1))
+          : 0,
       latency: {
         medianMs: medianLatencyMs,
         p95Ms: p95LatencyMs,
@@ -506,7 +599,9 @@ function checkForProhibitedFields(obj, path = "") {
   if (!obj || typeof obj !== "object") return;
 
   if (Array.isArray(obj)) {
-    obj.forEach((item, idx) => checkForProhibitedFields(item, `${path}[${idx}]`));
+    obj.forEach((item, idx) =>
+      checkForProhibitedFields(item, `${path}[${idx}]`),
+    );
     return;
   }
 
@@ -537,7 +632,11 @@ function validateUsageMetric(metric, path) {
       throw new Error(`value-not-allowed-for-unavailable:${path}.value`);
     }
   } else {
-    if (typeof metric.value !== "number" || Number.isNaN(metric.value) || metric.value < 0) {
+    if (
+      typeof metric.value !== "number" ||
+      Number.isNaN(metric.value) ||
+      metric.value < 0
+    ) {
       throw new Error(`invalid-metric-value:${path}.value`);
     }
   }
@@ -563,7 +662,10 @@ export function validateTelemetryEvent(event) {
   if (typeof event.correlationId !== "string" || !event.correlationId) {
     throw new Error("invalid-correlation-id");
   }
-  if (typeof event.occurredAt !== "string" || Number.isNaN(Date.parse(event.occurredAt))) {
+  if (
+    typeof event.occurredAt !== "string" ||
+    Number.isNaN(Date.parse(event.occurredAt))
+  ) {
     throw new Error("invalid-occurred-at");
   }
   if (!VALID_EVENT_TYPES.has(event.type)) {
@@ -589,11 +691,19 @@ export function validateTelemetryEvent(event) {
       throw new Error("invalid-route-candidates");
     }
     for (const cand of payload.candidates) {
-      if (!cand || !isKnownAgent(cand.agent) || typeof cand.model !== "string") {
+      if (
+        !cand ||
+        !isKnownAgent(cand.agent) ||
+        typeof cand.model !== "string"
+      ) {
         throw new Error("invalid-route-candidate");
       }
     }
-    if (!payload.selected || !isKnownAgent(payload.selected.agent) || typeof payload.selected.model !== "string") {
+    if (
+      !payload.selected ||
+      !isKnownAgent(payload.selected.agent) ||
+      typeof payload.selected.model !== "string"
+    ) {
       throw new Error("invalid-route-selected");
     }
     if (typeof payload.reasonCode !== "string" || !payload.reasonCode) {
@@ -624,14 +734,18 @@ export function validateTelemetryEvent(event) {
     }
 
     if (!VALID_EXIT_CLASSIFICATIONS.has(payload.exitClassification)) {
-      throw new Error(`invalid-exit-classification:${payload.exitClassification}`);
+      throw new Error(
+        `invalid-exit-classification:${payload.exitClassification}`,
+      );
     }
   } else if (event.type === "terminal_outcome") {
     if (!VALID_TERMINAL_STATUSES.has(payload.status)) {
       throw new Error(`invalid-terminal-status:${payload.status}`);
     }
     if (!VALID_FAILURE_REASON_CODES.has(payload.failureReasonCode)) {
-      throw new Error(`invalid-failure-reason-code:${payload.failureReasonCode}`);
+      throw new Error(
+        `invalid-failure-reason-code:${payload.failureReasonCode}`,
+      );
     }
     if (!VALID_PR_STATES.has(payload.prState)) {
       throw new Error(`invalid-pr-state:${payload.prState}`);
@@ -711,7 +825,8 @@ export function migrateTelemetryEvent(legacyEvent) {
     const migrated = {
       schemaVersion: 1,
       eventId: legacyEvent.id ?? `evt-${Date.now()}`,
-      correlationId: legacyEvent.runId ?? `run-${legacyEvent.issue ?? "unknown"}`,
+      correlationId:
+        legacyEvent.runId ?? `run-${legacyEvent.issue ?? "unknown"}`,
       occurredAt: legacyEvent.timestamp ?? new Date().toISOString(),
       type: legacyEvent.eventType ?? "terminal_outcome",
       issueNumber: legacyEvent.issue,

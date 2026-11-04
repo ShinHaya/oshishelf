@@ -58,15 +58,12 @@ if [ -n "$CURRENT" ] && [ "$CURRENT" != ".githooks" ]; then
 fi
 
 # --- 3. Make hook files executable -------------------------------
-find .githooks -type f \( -name 'pre-commit' -o -name '*.sh' \) \
+find .githooks -type f \( -name 'pre-commit' -o -name 'commit-msg' -o -name '*.sh' \) \
   -exec chmod +x {} +
 
 # --- 4. Point git at the hooks dir -------------------------------
 if [ "$CURRENT" = ".githooks" ]; then
   printf 'core.hooksPath already set to .githooks\n'
-elif [ -n "$CURRENT" ]; then
-  printf 'error: existing core.hooksPath is set to %s; unset it with git config --local --unset core.hooksPath before running this script\n' "$CURRENT" >&2
-  exit 1
 else
   git config --local core.hooksPath .githooks
   printf 'set core.hooksPath = .githooks\n'

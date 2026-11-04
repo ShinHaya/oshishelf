@@ -76,14 +76,21 @@ export {
  * half of its 5-hour window left. A missing snapshot keeps the parent out.
  */
 export async function runOrchestration(input) {
-  const items = normalizeIssues(input?.items, { completed: input?.state?.completed ?? [] });
+  const items = normalizeIssues(input?.items, {
+    completed: input?.state?.completed ?? [],
+  });
   const options = input?.options ?? {};
   const parent = options.parent;
-  if (!parent?.agent || !parent?.model) throw new Error("parent-route-required");
-  validateCapabilities([{ agent: parent.agent, model: parent.model, role: "parent" }], options.capabilities);
+  if (!parent?.agent || !parent?.model)
+    throw new Error("parent-route-required");
+  validateCapabilities(
+    [{ agent: parent.agent, model: parent.model, role: "parent" }],
+    options.capabilities,
+  );
 
   const dryRun = Boolean(options.dryRun);
-  const applyInMemory = Boolean(input.milestone) && (!dryRun || options.simulateMilestone);
+  const applyInMemory =
+    Boolean(input.milestone) && (!dryRun || options.simulateMilestone);
   let nextState;
 
   if (!dryRun && input.milestone) {
@@ -121,11 +128,16 @@ export async function runOrchestration(input) {
     unavailableAgents: options.unavailableAgents,
     unavailableModels: options.unavailableModels,
   });
-  if (plan.runnable.length && !workerRoutes.length) throw new Error("no-worker-route-available");
+  if (plan.runnable.length && !workerRoutes.length)
+    throw new Error("no-worker-route-available");
   return {
     dryRun,
-    ...(options.triage === undefined ? {} : { triage: normalizeTriageConfig(options.triage) }),
-    ...(input.fetchedBytes === undefined ? {} : { fetchedBytes: input.fetchedBytes }),
+    ...(options.triage === undefined
+      ? {}
+      : { triage: normalizeTriageConfig(options.triage) }),
+    ...(input.fetchedBytes === undefined
+      ? {}
+      : { fetchedBytes: input.fetchedBytes }),
     plan,
     workerRoutes,
     parentWorker,
@@ -138,7 +150,9 @@ export async function runOrchestration(input) {
 }
 
 function parentWorkerMode(parent) {
-  return parseParentWorkerMode(parent.workerMode ?? (parent.asWorker === true ? true : undefined));
+  return parseParentWorkerMode(
+    parent.workerMode ?? (parent.asWorker === true ? true : undefined),
+  );
 }
 
 /** Closed, non-sensitive record of why the parent is (not) in the pool. */
@@ -149,9 +163,14 @@ export function parentWorkerDecision(parent, usage) {
     mode,
     ...decision,
     ...(mode === "auto" && usage?.status === "ok"
-      ? { remainingPercent: usage.remainingPercent, windowDurationMins: usage.windowDurationMins }
+      ? {
+          remainingPercent: usage.remainingPercent,
+          windowDurationMins: usage.windowDurationMins,
+        }
       : {}),
-    ...(mode === "auto" && usage?.fetchedAt ? { fetchedAt: usage.fetchedAt } : {}),
+    ...(mode === "auto" && usage?.fetchedAt
+      ? { fetchedAt: usage.fetchedAt }
+      : {}),
   };
 }
 
@@ -204,17 +223,24 @@ export function parseCliArgs(argv) {
       options.refresh = true;
       continue;
     }
+    // Re-lists every runtime's model catalog (no model execution) before discovery.
+    if (flag === "--refresh-catalog") {
+      options.refreshCatalog = true;
+      continue;
+    }
     // Backward-compatible alias; prefer --parent-agent.
     if (flag === "--parent-provider") {
       const value = argv[++index];
-      if (value === undefined || value.startsWith("--")) throw new Error(`missing-flag-value:${flag}`);
+      if (value === undefined || value.startsWith("--"))
+        throw new Error(`missing-flag-value:${flag}`);
       options.parentAgent = value;
       continue;
     }
     const key = valueFlags.get(flag);
     if (!key) throw new Error(`unknown-flag:${flag}`);
     const value = argv[++index];
-    if (value === undefined || value.startsWith("--")) throw new Error(`missing-flag-value:${flag}`);
+    if (value === undefined || value.startsWith("--"))
+      throw new Error(`missing-flag-value:${flag}`);
     if (
       [
         "unavailableModels",
@@ -235,13 +261,18 @@ export function parseCliArgs(argv) {
             .map((item) => item.trim())
             .filter(Boolean),
         );
-      else options[key].push(key === "existingWorktrees" ? Number(value) : value);
+      else
+        options[key].push(key === "existingWorktrees" ? Number(value) : value);
     } else options[key] = ["maxParallel"].includes(key) ? Number(value) : value;
   }
-  if (options.triage !== undefined && !["off", "shadow", "assisted"].includes(options.triage))
+  if (
+    options.triage !== undefined &&
+    !["off", "shadow", "assisted"].includes(options.triage)
+  )
     throw new Error("triage-invalid-mode");
   resolveParentWorkerFlags(options);
-  if (options.milestoneJson && options.milestoneFile) throw new Error("milestone-source-conflict");
+  if (options.milestoneJson && options.milestoneFile)
+    throw new Error("milestone-source-conflict");
   return options;
 }
 
@@ -257,9 +288,9 @@ async function readInput(cli) {
     items: selection.items,
     state: {
       ...(input.state ?? {}),
-      completed: [...new Set([...(input.state?.completed ?? []), ...selection.completed])].sort(
-        (left, right) => left - right,
-      ),
+      completed: [
+        ...new Set([...(input.state?.completed ?? []), ...selection.completed]),
+      ].sort((left, right) => left - right),
     },
   });
   if (cli.inputPath) {
@@ -280,41 +311,69 @@ async function readInput(cli) {
 
 async function main() {
   const cli = parseCliArgs(process.argv.slice(2));
-  const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const repositoryRoot = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+  );
 
   await verifyRepositoryFreshness(repositoryRoot);
   let yamlConfig = {};
   try {
-    yamlConfig = await loadOrchestratorConfig(cli.configPath ?? DEFAULT_CONFIG_PATH, {
-      cwd: repositoryRoot,
-      dryRun: Boolean(cli.dryRun),
-    });
+    yamlConfig = await loadOrchestratorConfig(
+      cli.configPath ?? DEFAULT_CONFIG_PATH,
+      {
+        cwd: repositoryRoot,
+        dryRun: Boolean(cli.dryRun),
+      },
+    );
   } catch (error) {
-    if (error.message !== "config-file-not-found" || cli.configPath) throw error;
+    if (error.message !== "config-file-not-found" || cli.configPath)
+      throw error;
   }
   const merged = mergeOrchestratorConfig({
     yaml: yamlConfig,
     cli: {
       ...(cli.triage === undefined ? {} : { triage: cli.triage }),
-      ...(cli.maxParallel === undefined ? {} : { maxParallel: cli.maxParallel }),
-      ...(cli.releasePolicy === undefined ? {} : { releasePolicy: cli.releasePolicy }),
-      ...(cli.unavailableModels === undefined ? {} : { unavailableModels: cli.unavailableModels }),
-      ...(cli.unavailableAgents === undefined ? {} : { unavailableAgents: cli.unavailableAgents }),
-      ...(cli.parentAsWorker === undefined ? {} : { parentAsWorker: cli.parentAsWorker }),
+      ...(cli.maxParallel === undefined
+        ? {}
+        : { maxParallel: cli.maxParallel }),
+      ...(cli.releasePolicy === undefined
+        ? {}
+        : { releasePolicy: cli.releasePolicy }),
+      ...(cli.unavailableModels === undefined
+        ? {}
+        : { unavailableModels: cli.unavailableModels }),
+      ...(cli.unavailableAgents === undefined
+        ? {}
+        : { unavailableAgents: cli.unavailableAgents }),
+      ...(cli.parentAsWorker === undefined
+        ? {}
+        : { parentAsWorker: cli.parentAsWorker }),
     },
   });
   const effectiveCli = {
     ...cli,
     ...(merged.triage === undefined ? {} : { triage: merged.triage }),
-    ...(merged.maxParallel === undefined ? {} : { maxParallel: merged.maxParallel }),
-    ...(merged.releasePolicy === undefined ? {} : { releasePolicy: merged.releasePolicy }),
-    ...(merged.unavailableModels === undefined ? {} : { unavailableModels: merged.unavailableModels }),
-    ...(merged.unavailableAgents === undefined ? {} : { unavailableAgents: merged.unavailableAgents }),
-    ...(merged.parentAsWorker === undefined ? {} : { parentAsWorker: merged.parentAsWorker }),
+    ...(merged.maxParallel === undefined
+      ? {}
+      : { maxParallel: merged.maxParallel }),
+    ...(merged.releasePolicy === undefined
+      ? {}
+      : { releasePolicy: merged.releasePolicy }),
+    ...(merged.unavailableModels === undefined
+      ? {}
+      : { unavailableModels: merged.unavailableModels }),
+    ...(merged.unavailableAgents === undefined
+      ? {}
+      : { unavailableAgents: merged.unavailableAgents }),
+    ...(merged.parentAsWorker === undefined
+      ? {}
+      : { parentAsWorker: merged.parentAsWorker }),
   };
   const input = await readInput(effectiveCli);
   if (cli.milestoneJson) input.milestone = JSON.parse(cli.milestoneJson);
-  if (cli.milestoneFile) input.milestone = JSON.parse(await fs.readFile(cli.milestoneFile, "utf8"));
+  if (cli.milestoneFile)
+    input.milestone = JSON.parse(await fs.readFile(cli.milestoneFile, "utf8"));
 
   // Capability source of truth for the normal CLI path is automatic discovery,
   // which by default reuses state/issue-capabilities.json instead of
@@ -324,23 +383,33 @@ async function main() {
   let capabilities;
   let capabilityDiagnostics;
   let capabilityCacheStatus;
+  let modelCatalogStatus;
   if (cli.capabilitiesFile) {
     const loaded = JSON.parse(await fs.readFile(cli.capabilitiesFile, "utf8"));
     capabilities = Array.isArray(loaded) ? loaded : loaded.capabilities;
-    if (!Array.isArray(capabilities)) throw new Error("capability-records-required");
+    if (!Array.isArray(capabilities))
+      throw new Error("capability-records-required");
   } else if (Array.isArray(input.options?.capabilities)) {
     capabilities = input.options.capabilities;
   } else if (cli.skipCapabilityDiscovery) {
     capabilities = undefined;
   } else {
-    const cachePath = path.resolve(repositoryRoot, cli.capabilitiesOutput ?? DEFAULT_CAPABILITIES_OUTPUT);
+    const cachePath = path.resolve(
+      repositoryRoot,
+      cli.capabilitiesOutput ?? DEFAULT_CAPABILITIES_OUTPUT,
+    );
     const discovered = await loadOrRefreshCapabilities({
       cachePath,
       refresh: Boolean(cli.refresh),
+      refreshCatalog: Boolean(cli.refreshCatalog),
+      catalogMaxAgeHours: merged.modelCatalog?.maxAgeHours,
       invalidateAgents: cli.invalidateAgents,
       dryRun: Boolean(cli.dryRun),
       cwd: repositoryRoot,
     });
+    if (discovered.catalogRefreshedAgents)
+      modelCatalogStatus = `refreshed:${discovered.catalogRefreshedAgents.join(",")}`;
+    else modelCatalogStatus = "fresh";
     capabilities = discovered.capabilities;
     capabilityDiagnostics = discovered.diagnostics;
     capabilityCacheStatus = discovered.reused
@@ -352,11 +421,19 @@ async function main() {
 
   input.options = {
     ...(input.options ?? {}),
-    ...(effectiveCli.triage === undefined ? {} : { triage: effectiveCli.triage }),
+    ...(effectiveCli.triage === undefined
+      ? {}
+      : { triage: effectiveCli.triage }),
     ...(cli.dryRun === undefined ? {} : { dryRun: cli.dryRun }),
-    ...(cli.simulateMilestone === undefined ? {} : { simulateMilestone: cli.simulateMilestone }),
-    ...(effectiveCli.maxParallel === undefined ? {} : { maxParallel: effectiveCli.maxParallel }),
-    ...(effectiveCli.releasePolicy === undefined ? {} : { releasePolicy: effectiveCli.releasePolicy }),
+    ...(cli.simulateMilestone === undefined
+      ? {}
+      : { simulateMilestone: cli.simulateMilestone }),
+    ...(effectiveCli.maxParallel === undefined
+      ? {}
+      : { maxParallel: effectiveCli.maxParallel }),
+    ...(effectiveCli.releasePolicy === undefined
+      ? {}
+      : { releasePolicy: effectiveCli.releasePolicy }),
     ...(effectiveCli.unavailableModels === undefined
       ? {}
       : { unavailableModels: effectiveCli.unavailableModels }),
@@ -364,28 +441,57 @@ async function main() {
       ? {}
       : { unavailableAgents: effectiveCli.unavailableAgents }),
     ...(cli.statePath === undefined ? {} : { statePath: cli.statePath }),
-    ...(cli.existingWorktrees === undefined ? {} : { existingWorktrees: cli.existingWorktrees }),
+    ...(cli.existingWorktrees === undefined
+      ? {}
+      : { existingWorktrees: cli.existingWorktrees }),
     ...(capabilities === undefined ? {} : { capabilities }),
     ...(cli.parentAgent && cli.parentModel
-      ? { parent: { agent: cli.parentAgent, model: cli.parentModel, workerMode: effectiveCli.parentAsWorker } }
+      ? {
+          parent: {
+            agent: cli.parentAgent,
+            model: cli.parentModel,
+            workerMode: effectiveCli.parentAsWorker,
+          },
+        }
       : {}),
   };
-  if ((cli.parentAgent && !cli.parentModel) || (!cli.parentAgent && cli.parentModel))
+  if (
+    (cli.parentAgent && !cli.parentModel) ||
+    (!cli.parentAgent && cli.parentModel)
+  )
     throw new Error("parent-agent-and-model-required");
   // Read the parent's 5-hour window at assignment time; never cached or
   // persisted. Pre-baked input snapshots (tests) take precedence.
   const parent = input.options.parent;
-  if (parent?.agent && parentWorkerMode(parent) === "auto" && input.options.parentUsage === undefined)
-    input.options.parentUsage = await readParentUsage(input.options.parent.agent, { cwd: repositoryRoot });
-  const result = /** @type {Awaited<ReturnType<typeof runOrchestration>> & { capabilityDiagnostics?: unknown, capabilityCacheStatus?: unknown }} */ (
-    await runOrchestration(input));
-  if (capabilityDiagnostics !== undefined) result.capabilityDiagnostics = capabilityDiagnostics;
-  if (capabilityCacheStatus !== undefined) result.capabilityCacheStatus = capabilityCacheStatus;
+  if (
+    parent?.agent &&
+    parentWorkerMode(parent) === "auto" &&
+    input.options.parentUsage === undefined
+  )
+    input.options.parentUsage = await readParentUsage(
+      input.options.parent.agent,
+      { cwd: repositoryRoot },
+    );
+  const result =
+    /** @type {Awaited<ReturnType<typeof runOrchestration>> & { capabilityDiagnostics?: unknown, capabilityCacheStatus?: unknown, modelCatalogStatus?: unknown }} */ (
+      await runOrchestration(input)
+    );
+  if (capabilityDiagnostics !== undefined)
+    result.capabilityDiagnostics = capabilityDiagnostics;
+  if (capabilityCacheStatus !== undefined)
+    result.capabilityCacheStatus = capabilityCacheStatus;
+  if (modelCatalogStatus !== undefined)
+    result.modelCatalogStatus = modelCatalogStatus;
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+)
   main().catch((error) => {
-    process.stderr.write(`${JSON.stringify({ status: "error", reason: error.message })}\n`);
+    process.stderr.write(
+      `${JSON.stringify({ status: "error", reason: error.message })}\n`,
+    );
     process.exitCode = 1;
   });

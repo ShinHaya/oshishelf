@@ -77,11 +77,178 @@
             "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
           },
           "uniqueItems": true
+        },
+        "models": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "allow": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[^\\s\\u0000-\\u001f\\u007f]+$"
+                },
+                "uniqueItems": true
+              },
+              "deny": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[^\\s\\u0000-\\u001f\\u007f]+$"
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "permissions": {
+          "type": "object",
+          "properties": {
+            "roles": {
+              "type": "object",
+              "properties": {
+                "implementer": {
+                  "enum": [
+                    "workspace-write",
+                    "worktree-setup",
+                    "read-only",
+                    "bypass"
+                  ]
+                },
+                "planner": {
+                  "enum": [
+                    "workspace-write",
+                    "worktree-setup",
+                    "read-only",
+                    "bypass"
+                  ]
+                },
+                "reviewer": {
+                  "enum": [
+                    "workspace-write",
+                    "worktree-setup",
+                    "read-only",
+                    "bypass"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "allowBypass": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "uniqueItems": true
+            },
+            "requireEnforcement": {
+              "type": "array",
+              "items": {
+                "enum": ["workspace-write", "worktree-setup", "read-only"]
+              },
+              "uniqueItems": true
+            },
+            "runtimes": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "workspace-write": {
+                    "type": "object",
+                    "properties": {
+                      "allow": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                        },
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": ["allow"],
+                    "additionalProperties": false
+                  },
+                  "worktree-setup": {
+                    "type": "object",
+                    "properties": {
+                      "allow": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                        },
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": ["allow"],
+                    "additionalProperties": false
+                  },
+                  "read-only": {
+                    "type": "object",
+                    "properties": {
+                      "allow": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                        },
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": ["allow"],
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "inherit": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                },
+                "uniqueItems": true
+              },
+              "required": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                },
+                "uniqueItems": true
+              }
+            },
+            "additionalProperties": false
+          }
         }
       },
-      "required": [
-        "enabled"
-      ],
+      "required": ["enabled"],
+      "additionalProperties": false
+    },
+    "enterprise": {
+      "type": "object",
+      "properties": {
+        "routeAttestation": { "type": "boolean" }
+      },
       "additionalProperties": false
     },
     "localSkills": {

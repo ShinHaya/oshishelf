@@ -50,7 +50,8 @@ export function determineEligibleModes(context = {}) {
   const depth = Number(context.dependencyDepth ?? 0);
   const changeScopeCount = Number(context.changeScopeCount ?? 1);
 
-  const isHighRisk = risk === RISK_CATEGORIES.HIGH || risk === RISK_CATEGORIES.CRITICAL;
+  const isHighRisk =
+    risk === RISK_CATEGORIES.HIGH || risk === RISK_CATEGORIES.CRITICAL;
   const isMediumRisk = risk === RISK_CATEGORIES.MEDIUM;
   const sizeValue = SIZE_RANK[size] ?? 3;
 
@@ -60,7 +61,12 @@ export function determineEligibleModes(context = {}) {
     // High risk demands planning or parallel analysis
     eligible.add(EXECUTION_MODES.PARALLEL_ANALYSIS_IMPLEMENT_REVIEW);
     eligible.add(EXECUTION_MODES.PLAN_IMPLEMENT_REVIEW);
-  } else if (isMediumRisk || sizeValue >= SIZE_RANK.L || depth >= 2 || changeScopeCount > 5) {
+  } else if (
+    isMediumRisk ||
+    sizeValue >= SIZE_RANK.L ||
+    depth >= 2 ||
+    changeScopeCount > 5
+  ) {
     eligible.add(EXECUTION_MODES.PLAN_IMPLEMENT_REVIEW);
     if (sizeValue <= SIZE_RANK.M && depth <= 2 && changeScopeCount <= 5) {
       eligible.add(EXECUTION_MODES.DIRECT_REVIEW);

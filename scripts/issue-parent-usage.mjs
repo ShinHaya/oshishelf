@@ -1,4 +1,5 @@
-import { findRuntime } from "./ai-template/registry.mjs";
+import { environmentReason } from "./issue-runtime-adapters/environment.mjs";
+import { findRuntime, runtimeEnvironment } from "./ai-template/registry.mjs";
 import { fetchUsage, normalizeUsage } from "./issue-runtime-adapters/usage.mjs";
 
 /**
@@ -23,7 +24,10 @@ export const DEFAULT_PARENT_USAGE_TIMEOUT_MS = 15_000;
 export function parseParentWorkerMode(value) {
   if (value === undefined || value === false) return "auto";
   if (value === true) return "always";
-  if (typeof value === "string" && PARENT_WORKER_MODES.has(value.trim().toLowerCase()))
+  if (
+    typeof value === "string" &&
+    PARENT_WORKER_MODES.has(value.trim().toLowerCase())
+  )
     return value.trim().toLowerCase();
   throw new Error("config-invalid-parent-as-worker");
 }
@@ -48,7 +52,11 @@ export function resolveParentWorkerFlags(options) {
 }
 
 /** @returns {import("./issue-runtime-adapters/usage.mjs").UsageSnapshot} */
-const unknown = (reason, fetchedAt) => ({ status: "unknown", reason, ...(fetchedAt ? { fetchedAt } : {}) });
+const unknown = (reason, fetchedAt) => ({
+  status: "unknown",
+  reason,
+  ...(fetchedAt ? { fetchedAt } : {}),
+});
 
 /**
  * Decide whether the parent runtime may take worker routes right now.
@@ -57,10 +65,14 @@ const unknown = (reason, fetchedAt) => ({ status: "unknown", reason, ...(fetched
  * @param {import("./issue-runtime-adapters/usage.mjs").UsageSnapshot} [usage]
  */
 export function decideParentWorker(mode, usage) {
-  if (mode === "always") return { eligible: true, reason: "parent-worker-forced" };
-  if (mode === "never") return { eligible: false, reason: "parent-worker-disabled" };
-  if (mode !== "auto") return { eligible: false, reason: "parent-worker-invalid-mode" };
-  if (usage?.status !== "ok") return { eligible: false, reason: usage?.reason ?? "parent-usage-unknown" };
+  if (mode === "always")
+    return { eligible: true, reason: "parent-worker-forced" };
+  if (mode === "never")
+    return { eligible: false, reason: "parent-worker-disabled" };
+  if (mode !== "auto")
+    return { eligible: false, reason: "parent-worker-invalid-mode" };
+  if (usage?.status !== "ok")
+    return { eligible: false, reason: usage?.reason ?? "parent-usage-unknown" };
   return usage.remainingPercent >= PARENT_USAGE_MIN_REMAINING_PERCENT
     ? { eligible: true, reason: "parent-usage-sufficient" }
     : { eligible: false, reason: "parent-usage-low" };
@@ -72,20 +84,42 @@ export function decideParentWorker(mode, usage) {
  * @param {{ timeoutMs?: number, now?: () => string, cwd?: string, spawn?: Function, env?: NodeJS.ProcessEnv }} [options]
  * @returns {Promise<import("./issue-runtime-adapters/usage.mjs").UsageSnapshot>}
  */
-export async function readParentUsage(agent, {
-  timeoutMs = DEFAULT_PARENT_USAGE_TIMEOUT_MS,
-  now = () => new Date().toISOString(),
-  cwd = process.cwd(),
-  ...options
-} = {}) {
+export async function readParentUsage(
+  agent,
+  {
+    timeoutMs = DEFAULT_PARENT_USAGE_TIMEOUT_MS,
+    now = () => new Date().toISOString(),
+    cwd = process.cwd(),
+    ...options
+  } = {},
+) {
   const fetchedAt = now();
   try {
     const runtime = findRuntime(agent, cwd, { enabledOnly: true });
-    if (!runtime || runtime.retired) return unknown("parent-usage-unsupported-runtime", fetchedAt);
-    if (!runtime.usage) return unknown(runtime.usageUnavailable ? "parent-usage-five-hour-unavailable" : "parent-usage-unsupported-runtime", fetchedAt);
-    return normalizeUsage(await fetchUsage(runtime.usage, { ...options, timeoutMs, cwd }), runtime.usage, { fetchedAt });
+    if (!runtime || runtime.retired)
+      return unknown("parent-usage-unsupported-runtime", fetchedAt);
+    if (!runtime.usage)
+      return unknown(
+        runtime.usageUnavailable
+          ? "parent-usage-five-hour-unavailable"
+          : "parent-usage-unsupported-runtime",
+        fetchedAt,
+      );
+    return normalizeUsage(
+      await fetchUsage(runtime.usage, {
+        ...options,
+        timeoutMs,
+        cwd,
+        env: runtimeEnvironment(runtime, { ...options, cwd }),
+      }),
+      runtime.usage,
+      { fetchedAt },
+    );
   } catch (error) {
-    const reason = error?.message === "parent-usage-timeout" ? "parent-usage-timeout" : "parent-usage-fetch-failed";
+    const reason =
+      (environmentReason(error) ?? error?.message === "parent-usage-timeout")
+        ? "parent-usage-timeout"
+        : "parent-usage-fetch-failed";
     return unknown(reason, fetchedAt);
   }
 }

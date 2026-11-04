@@ -29,7 +29,11 @@ import {
   parseBenchmarkArgs,
   BENCHMARK_VERSION,
 } from "../../scripts/issue-route-benchmark.mjs";
-import { RISKS, SIZES, normalizeRouteEvidence } from "../../scripts/issue-triage-contract.mjs";
+import {
+  RISKS,
+  SIZES,
+  normalizeRouteEvidence,
+} from "../../scripts/issue-triage-contract.mjs";
 
 const execFileAsync = promisify(execFile);
 const NOW = Date.parse("2026-10-09T00:00:00Z");
@@ -42,7 +46,9 @@ function choice(options, selected, p) {
   return {
     type: "choice",
     choice: selected,
-    probabilities: Object.fromEntries(options.map((o) => [o, o === selected ? p : rest])),
+    probabilities: Object.fromEntries(
+      options.map((o) => [o, o === selected ? p : rest]),
+    ),
     confidence: p,
   };
 }
@@ -51,7 +57,10 @@ function oracleTransport(p = 0.9) {
   const byTitle = new Map(dataset.cases.map((c) => [c.title, c.label]));
   return createFakeTransport((text) => {
     const labelled = byTitle.get(text.split("\n")[0]);
-    return { risk: choice(RISKS, labelled.risk, p), size: choice(SIZES, labelled.size, p) };
+    return {
+      risk: choice(RISKS, labelled.risk, p),
+      size: choice(SIZES, labelled.size, p),
+    };
   });
 }
 const evaluate = (transport, options = {}) =>
@@ -69,11 +78,19 @@ test("dataset meets the design §9 size, split and coverage floors", () => {
   assert.ok(summary.highCritical >= 30);
   assert.ok(summary.splits.holdout.highCriticalClassifiable >= 30);
   for (const split of ["tune", "holdout"]) {
-    for (const language of LANGUAGES) assert.ok(summary.splits[split].languages[language] > 0);
-    for (const tag of REQUIRED_TAGS) assert.ok(summary.splits[split].tags[tag] > 0, `${split}:${tag}`);
+    for (const language of LANGUAGES)
+      assert.ok(summary.splits[split].languages[language] > 0);
+    for (const tag of REQUIRED_TAGS)
+      assert.ok(summary.splits[split].tags[tag] > 0, `${split}:${tag}`);
   }
-  const tuneTitles = new Set(dataset.cases.filter((c) => c.split === "tune").map((c) => c.title));
-  assert.ok(dataset.cases.filter((c) => c.split === "holdout").every((c) => !tuneTitles.has(c.title)));
+  const tuneTitles = new Set(
+    dataset.cases.filter((c) => c.split === "tune").map((c) => c.title),
+  );
+  assert.ok(
+    dataset.cases
+      .filter((c) => c.split === "holdout")
+      .every((c) => !tuneTitles.has(c.title)),
+  );
   assert.equal(dataset.labeling.status, "agent-proposed");
 });
 
@@ -89,27 +106,47 @@ test("dataset validation rejects unknown fields, duplicates, stray secrets and t
   assert.throws(() => validateEvalDataset(stray), /tripwire/);
   const thin = clone();
   thin.cases = thin.cases.filter(
-    (c) => c.split !== "holdout" || !["high", "critical"].includes(c.label.risk) || c.id < "H040",
+    (c) =>
+      c.split !== "holdout" ||
+      !["high", "critical"].includes(c.label.risk) ||
+      c.id < "H040",
   );
-  assert.throws(() => validateEvalDataset(thin), /triage-eval-invalid:(holdout-high-critical|too-few)/);
+  assert.throws(
+    () => validateEvalDataset(thin),
+    /triage-eval-invalid:(holdout-high-critical|too-few)/,
+  );
   const unconfirmed = clone();
-  unconfirmed.labeling = { status: "human-confirmed", confirmedBy: "Product Owner", confirmedAt: null };
+  unconfirmed.labeling = {
+    status: "human-confirmed",
+    confirmedBy: "Product Owner",
+    confirmedAt: null,
+  };
   assert.throws(() => validateEvalDataset(unconfirmed), /labeling/);
 });
 
 test("an evaluation cannot claim a rubric different from the deployed classifier", () => {
   const stale = clone();
   stale.rubricVersion = "triage-rubric-524-v1";
-  assert.throws(() => validateEvalDataset(stale), /triage-eval-invalid:rubric-version/);
+  assert.throws(
+    () => validateEvalDataset(stale),
+    /triage-eval-invalid:rubric-version/,
+  );
   const oldPolicy = clone();
   oldPolicy.policyVersion = "triage-v1";
-  assert.throws(() => validateEvalDataset(oldPolicy), /triage-eval-invalid:policy/);
+  assert.throws(
+    () => validateEvalDataset(oldPolicy),
+    /triage-eval-invalid:policy/,
+  );
 });
 
 test("the keyword baseline run is reproducible and keeps Issue text out of every output", async () => {
   const transport = createFakeTransport(keywordBaselineAnswers);
-  const first = await evaluate(transport, { transportKind: "keyword-baseline" });
-  const second = await evaluate(transport, { transportKind: "keyword-baseline" });
+  const first = await evaluate(transport, {
+    transportKind: "keyword-baseline",
+  });
+  const second = await evaluate(transport, {
+    transportKind: "keyword-baseline",
+  });
   assert.deepEqual(first, second);
   const metrics = computeTriageMetrics(first);
   const output =
@@ -137,26 +174,40 @@ test("a label-matching transport scores perfectly and has no direct-review misse
   assert.equal(metrics.highCritical.usable, metrics.highCritical.labeled);
   // Brier for p=0.9 on the right class: 0.1^2 + (k-1) * ((0.1/(k-1))^2)
   assert.ok(Math.abs(metrics.risk.brier - (0.01 + 3 * (0.1 / 3) ** 2)) < 1e-9);
-  assert.equal(metrics.risk.reliability.at(-1).count, metrics.outcomes.recommended);
+  assert.equal(
+    metrics.risk.reliability.at(-1).count,
+    metrics.outcomes.recommended,
+  );
 });
 
 test("a confident under-classifier is reported as direct-review misses", async () => {
   const run = await evaluate(
-    createFakeTransport(() => ({ risk: choice(RISKS, "low", 0.9), size: choice(SIZES, "S", 0.9) })),
+    createFakeTransport(() => ({
+      risk: choice(RISKS, "low", 0.9),
+      size: choice(SIZES, "S", 0.9),
+    })),
   );
   const metrics = computeTriageMetrics(run);
-  assert.equal(metrics.highCritical.directReviewMisses.length, metrics.highCritical.labeled);
+  assert.equal(
+    metrics.highCritical.directReviewMisses.length,
+    metrics.highCritical.labeled,
+  );
   assert.equal(metrics.highCritical.missRate, 1);
   assert.equal(
     metrics.risk.confusion.critical.low,
-    run.records.filter((r) => r.label.risk === "critical" && r.status === "recommended").length,
+    run.records.filter(
+      (r) => r.label.risk === "critical" && r.status === "recommended",
+    ).length,
   );
   assert.ok(metrics.overrideCauses.riskUnder > 0);
 });
 
 test("uncertain answers count as abstentions, not adoptable misses", async () => {
   const run = await evaluate(
-    createFakeTransport(() => ({ risk: choice(RISKS, "low", 0.4), size: choice(SIZES, "S", 0.4) })),
+    createFakeTransport(() => ({
+      risk: choice(RISKS, "low", 0.4),
+      size: choice(SIZES, "S", 0.4),
+    })),
   );
   const metrics = computeTriageMetrics(run);
   assert.equal(metrics.outcomes.usable, 0);
@@ -174,11 +225,20 @@ test("throttling stops every later request, and a short budget refuses to start"
   assert.equal(calls, 1);
   assert.equal(run.complete, false);
   assert.equal(
-    assessAssistedGate(run, computeTriageMetrics(run)).conditions.find((c) => c.id === "complete-run").status,
+    assessAssistedGate(run, computeTriageMetrics(run)).conditions.find(
+      (c) => c.id === "complete-run",
+    ).status,
     "not-met",
   );
-  const reasons = new Set(run.records.filter((r) => r.expectedOutcome === "classify").map((r) => r.reason));
-  assert.deepEqual([...reasons].sort(), ["provider-unavailable", "rate-limited"]);
+  const reasons = new Set(
+    run.records
+      .filter((r) => r.expectedOutcome === "classify")
+      .map((r) => r.reason),
+  );
+  assert.deepEqual([...reasons].sort(), [
+    "provider-unavailable",
+    "rate-limited",
+  ]);
   await assert.rejects(
     evaluate(
       async () => {
@@ -197,10 +257,20 @@ test("the assisted gate never reports met by itself and marks stand-ins unmeasur
   const metrics = computeTriageMetrics(run);
   const offline = assessAssistedGate(run, metrics);
   assert.equal(offline.overall, "not-met");
-  assert.equal(offline.conditions.find((c) => c.id === "live-jev-measurement").status, "not-met");
-  assert.equal(offline.conditions.find((c) => c.id === "zero-direct-review-misses").status, "unmeasured");
+  assert.equal(
+    offline.conditions.find((c) => c.id === "live-jev-measurement").status,
+    "not-met",
+  );
+  assert.equal(
+    offline.conditions.find((c) => c.id === "zero-direct-review-misses").status,
+    "unmeasured",
+  );
   const live = assessAssistedGate(
-    { ...run, transportKind: "jev-live", labeling: { status: "human-confirmed" } },
+    {
+      ...run,
+      transportKind: "jev-live",
+      labeling: { status: "human-confirmed" },
+    },
     metrics,
   );
   assert.equal(live.overall, "pending");
@@ -210,22 +280,34 @@ test("the assisted gate never reports met by itself and marks stand-ins unmeasur
   );
   const missed = assessAssistedGate(
     { ...run, transportKind: "jev-live" },
-    { ...metrics, highCritical: { ...metrics.highCritical, directReviewMisses: ["H001"] } },
+    {
+      ...metrics,
+      highCritical: { ...metrics.highCritical, directReviewMisses: ["H001"] },
+    },
   );
   assert.equal(missed.overall, "not-met");
 });
 
 test("an older model, policy, rubric or prompt fingerprint cannot authorize the current classifier", async () => {
   const run = await evaluate(oracleTransport());
-  const live = { ...run, transportKind: "jev-live", labeling: { status: "human-confirmed" } };
+  const live = {
+    ...run,
+    transportKind: "jev-live",
+    labeling: { status: "human-confirmed" },
+  };
   const metrics = computeTriageMetrics(run);
   for (const change of [
-    { model: "jev-1.12.0" }, { policyVersion: "triage-v1" },
-    { rubricVersion: "triage-rubric-524-v1" }, { classifierFingerprint: "0".repeat(64) },
+    { model: "jev-1.12.0" },
+    { policyVersion: "triage-v1" },
+    { rubricVersion: "triage-rubric-524-v1" },
+    { classifierFingerprint: "0".repeat(64) },
   ]) {
     const gate = assessAssistedGate({ ...live, ...change }, metrics);
     assert.equal(gate.overall, "not-met");
-    assert.equal(gate.conditions.find((c) => c.id === "current-classifier").status, "not-met");
+    assert.equal(
+      gate.conditions.find((c) => c.id === "current-classifier").status,
+      "not-met",
+    );
   }
 });
 
@@ -234,7 +316,11 @@ test("shadow comparison stratifies outcomes by recommendation agreement and flag
     r0: { agent: "Codex", model: "fixture-a" },
     r1: { agent: "Claude", model: "fixture-b" },
   };
-  const recommended = (pick) => ({ status: "recommended", route: { choice: pick }, routeMap });
+  const recommended = (pick) => ({
+    status: "recommended",
+    route: { choice: pick },
+    routeMap,
+  });
   const shadowRun = {
     body: "must be ignored",
     assignments: [
@@ -250,22 +336,44 @@ test("shadow comparison stratifies outcomes by recommendation agreement and flag
     ],
     usage: {
       issues: [
-        { number: 1, usage: { inputTokens: 10, outputTokens: 5, wallClockMs: 100 } },
+        {
+          number: 1,
+          usage: { inputTokens: 10, outputTokens: 5, wallClockMs: 100 },
+        },
         { number: 2, usage: "unavailable" },
       ],
     },
     shadowTriage: [
-      { issue: 1, result: recommended("r0"), assignedRoute: { agent: "Codex", model: "fixture-a" } },
-      { issue: 2, result: recommended("r0"), assignedRoute: { agent: "Claude", model: "fixture-b" } },
+      {
+        issue: 1,
+        result: recommended("r0"),
+        assignedRoute: { agent: "Codex", model: "fixture-a" },
+      },
+      {
+        issue: 2,
+        result: recommended("r0"),
+        assignedRoute: { agent: "Claude", model: "fixture-b" },
+      },
       { issue: 3, result: recommended("abstain") },
       { issue: 4, result: { status: "fallback", reason: "timeout" } },
     ],
   };
-  const manualRun = { assignments: [{ number: 5 }], completed: [5], roles: [], usage: { issues: [] } };
+  const manualRun = {
+    assignments: [{ number: 5 }],
+    completed: [5],
+    roles: [],
+    usage: { issues: [] },
+  };
   const report = compareShadowRuns([shadowRun, manualRun]);
   const { agree, disagree, abstain, fallback, unrecorded } = report.byAgreement;
   assert.deepEqual(
-    [agree.issues, disagree.issues, abstain.issues, fallback.issues, unrecorded.issues],
+    [
+      agree.issues,
+      disagree.issues,
+      abstain.issues,
+      fallback.issues,
+      unrecorded.issues,
+    ],
     [1, 1, 1, 1, 0],
   );
   assert.equal(agree.completionRate, 1);
@@ -285,26 +393,52 @@ test("shadow comparison stratifies outcomes by recommendation agreement and flag
 });
 
 test("CLI parsing keeps live evaluation and live benchmarks behind explicit opt-in", () => {
-  assert.throws(() => parseEvalArgs(["--transport", "live"]), /live-requires-max-requests/);
-  assert.equal(parseEvalArgs(["--transport", "live", "--max-requests", "90"]).maxRequests, 90);
-  assert.throws(() => parseEvalArgs(["--split", "everything"]), /invalid-split/);
+  assert.throws(
+    () => parseEvalArgs(["--transport", "live"]),
+    /live-requires-max-requests/,
+  );
+  assert.equal(
+    parseEvalArgs(["--transport", "live", "--max-requests", "90"]).maxRequests,
+    90,
+  );
+  assert.throws(
+    () => parseEvalArgs(["--split", "everything"]),
+    /invalid-split/,
+  );
   assert.throws(() => parseBenchmarkArgs([]), /route-benchmark-requires-live/);
-  assert.equal(parseBenchmarkArgs(["--live", "--only", "Claude,Codex"]).only.length, 2);
+  assert.equal(
+    parseBenchmarkArgs(["--live", "--only", "Claude,Codex"]).only.length,
+    2,
+  );
 });
 
 test("the baseline CLI runs offline and prints no Issue text", async () => {
-  const script = path.resolve("scripts/issue-triage-eval.mjs");
+  const script = path.resolve(
+    import.meta.dirname,
+    "../../scripts/issue-triage-eval.mjs",
+  );
   const env = { ...process.env };
   delete env.TYPESAFE_API_KEY;
-  const { stdout } = await execFileAsync(process.execPath, [script, "--now", "2026-10-09T00:00:00Z"], {
-    env,
-  });
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [script, "--now", "2026-10-09T00:00:00Z"],
+    {
+      env,
+    },
+  );
   assert.match(stdout, /keyword-baseline/);
   assert.match(stdout, /Jev quality is unmeasured/);
-  assert.ok(!stdout.includes(dataset.cases.find((c) => c.split === "holdout").title));
+  assert.ok(
+    !stdout.includes(dataset.cases.find((c) => c.split === "holdout").title),
+  );
   await assert.rejects(
-    execFileAsync(process.execPath, [script, "--transport", "live", "--max-requests", "200"], { env }),
-    (/** @type {{ stderr: string }} */ error) => /triage-eval-missing-key/.test(error.stderr),
+    execFileAsync(
+      process.execPath,
+      [script, "--transport", "live", "--max-requests", "200"],
+      { env },
+    ),
+    (/** @type {{ stderr: string }} */ error) =>
+      /triage-eval-missing-key/.test(error.stderr),
   );
 });
 
@@ -316,18 +450,22 @@ const LOCAL_FIXES = {
   clamp: "export const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));",
   sum: "export function sum(xs) { let t = 0; for (let i = 0; i < xs.length; i++) t += xs[i]; return t; }",
   isEven: "export const isEven = (n) => n % 2 === 0;",
-  capitalize: "export const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);",
+  capitalize:
+    "export const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);",
   range: "export const range = (n) => Array.from({ length: n }, (_, i) => i);",
   unique: "export const unique = (xs) => [...new Set(xs)];",
   maxOf: "export const maxOf = (xs) => (xs.length ? Math.max(...xs) : null);",
-  reverseWords: 'export const reverseWords = (s) => s.split(" ").reverse().join(" ");',
-  countVowels: "export const countVowels = (s) => (s.match(/[aeiou]/gi) ?? []).length;",
+  reverseWords:
+    'export const reverseWords = (s) => s.split(" ").reverse().join(" ");',
+  countVowels:
+    "export const countVowels = (s) => (s.match(/[aeiou]/gi) ?? []).length;",
   padLeft: "export const padLeft = (s, n) => s.padStart(n);",
 };
 /** A reference agent: the minimal correct edit for each fictional task. */
 function referenceFix(task) {
   if (task.kind === "docs") return { [task.check.file]: task.check.content };
-  if (task.kind === "local-code") return { "lib.mjs": LOCAL_FIXES[task.instruction.match(/`(\w+)`/)[1]] };
+  if (task.kind === "local-code")
+    return { "lib.mjs": LOCAL_FIXES[task.instruction.match(/`(\w+)`/)[1]] };
   if (task.kind === "cross-component") {
     const [, from, to] = task.instruction.match(/`(\w+)` to `(\w+)`/);
     return {
@@ -363,8 +501,16 @@ test("the benchmark has ten unique tasks per kind whose checkers separate fixed 
     const unfixed = await materialize(task, {});
     const fixed = await materialize(task, referenceFix(task));
     try {
-      assert.equal(await checkBenchmarkTask(unfixed, task), false, `${task.id} unfixed`);
-      assert.equal(await checkBenchmarkTask(fixed, task), true, `${task.id} fixed`);
+      assert.equal(
+        await checkBenchmarkTask(unfixed, task),
+        false,
+        `${task.id} unfixed`,
+      );
+      assert.equal(
+        await checkBenchmarkTask(fixed, task),
+        true,
+        `${task.id} fixed`,
+      );
     } finally {
       await fs.rm(unfixed, { recursive: true, force: true });
       await fs.rm(fixed, { recursive: true, force: true });
@@ -372,16 +518,29 @@ test("the benchmark has ten unique tasks per kind whose checkers separate fixed 
   }
 });
 
-const route = { agent: "Claude", model: "fixture-model", selector: "fixture-cli --model fixture-model" };
+const route = {
+  agent: "Claude",
+  model: "fixture-model",
+  selector: "fixture-cli --model fixture-model",
+};
 /** Fake CLI: applies the reference fix in its cwd, like an agent would. */
-function fakeCli({ fix = true, stdout = "", seen = [], code = 0, timedOut = false } = {}) {
+function fakeCli({
+  fix = true,
+  stdout = "",
+  seen = [],
+  code = 0,
+  timedOut = false,
+} = {}) {
   return async (command, args, options) => {
     if (command === process.execPath) {
-      const { runProcess } = await import("../../scripts/issue-runtime-adapters/shared.mjs");
+      const { runProcess } =
+        await import("../../scripts/issue-runtime-adapters/shared.mjs");
       return runProcess(command, args, options);
     }
     seen.push({ command, args, env: options.env });
-    const task = buildBenchmarkTasks().find((t) => args.at(-1).startsWith(t.instruction));
+    const task = buildBenchmarkTasks().find((t) =>
+      args.at(-1).startsWith(t.instruction),
+    );
     if (fix)
       for (const [name, content] of Object.entries(referenceFix(task)))
         await fs.writeFile(path.join(options.cwd, name), content);
@@ -400,34 +559,59 @@ test("a benchmark task returns closed fields only and strips the Jev key from th
   });
   assert.deepEqual(result, { kind: "docs", passed: true, durationMs: 250 });
   assert.equal(seen[0].command, "fixture-cli");
-  assert.deepEqual(seen[0].args.slice(0, 3), ["--model", "fixture-model", "-p"]);
+  // Benchmark tasks run with the implementer's argv between selector and probe args.
+  assert.deepEqual(seen[0].args.slice(0, 4), [
+    "--model",
+    "fixture-model",
+    "--permission-mode",
+    "acceptEdits",
+  ]);
+  assert.equal(seen[0].args.at(-2), "--verbose");
+  assert.equal(seen[0].args.join(" ").includes("bypassPermissions"), false);
   assert.equal(seen[0].env.TYPESAFE_API_KEY, undefined);
-  const failed = await runBenchmarkTask(route, task, { run: fakeCli({ fix: false }) });
+  const failed = await runBenchmarkTask(route, task, {
+    run: fakeCli({ fix: false }),
+  });
   assert.equal(failed.passed, false);
 });
 
 test("a substituted model invalidates the whole route", async () => {
-  const outcome = await benchmarkRoute(route, buildBenchmarkTasks().slice(0, 3), {
-    run: fakeCli({ stdout: '{"model":"other-model"}\n' }),
-  });
+  const outcome = await benchmarkRoute(
+    route,
+    buildBenchmarkTasks().slice(0, 3),
+    {
+      run: fakeCli({ stdout: '{"model":"other-model"}\n' }),
+    },
+  );
   assert.deepEqual(outcome, { status: "model-mismatch" });
 });
 
 test("CLI failures and timeouts abort the route instead of counting as failed tasks", async () => {
   const tasks = buildBenchmarkTasks().slice(0, 3);
-  assert.deepEqual(await benchmarkRoute(route, tasks, { run: fakeCli({ code: 1 }) }), {
-    status: "incomplete",
-  });
-  assert.deepEqual(await benchmarkRoute(route, tasks, { run: fakeCli({ timedOut: true }) }), {
-    status: "incomplete",
-  });
+  assert.deepEqual(
+    await benchmarkRoute(route, tasks, { run: fakeCli({ code: 1 }) }),
+    {
+      status: "incomplete",
+    },
+  );
+  assert.deepEqual(
+    await benchmarkRoute(route, tasks, { run: fakeCli({ timedOut: true }) }),
+    {
+      status: "incomplete",
+    },
+  );
 });
 
 test("local-code instructions state the behaviors their hidden checks assert", () => {
-  const byId = Object.fromEntries(buildBenchmarkTasks().map((t) => [t.id, t.instruction]));
+  const byId = Object.fromEntries(
+    buildBenchmarkTasks().map((t) => [t.id, t.instruction]),
+  );
   assert.match(byId["local-code-6"], /order of first occurrence/);
   assert.match(byId["local-code-7"], /null for an empty array/);
-  assert.match(byId["local-code-10"], /unchanged when it is already at least n long/);
+  assert.match(
+    byId["local-code-10"],
+    /unchanged when it is already at least n long/,
+  );
 });
 
 test("RouteEvidence aggregates per kind and validates against the triage contract", () => {
@@ -454,7 +638,10 @@ test("RouteEvidence aggregates per kind and validates against the triage contrac
     "profileVersion",
     "tasks",
   ]);
-  assert.throws(() => normalizeRouteEvidence({ ...evidence, prompt: "raw" }), /triage-invalid-structure/);
+  assert.throws(
+    () => normalizeRouteEvidence({ ...evidence, prompt: "raw" }),
+    /triage-invalid-structure/,
+  );
 });
 
 test("route ranking follows the rubric and abstains on stale, mixed, tied or thin evidence", () => {
@@ -467,32 +654,55 @@ test("route ranking follows the rubric and abstains on stale, mixed, tied or thi
     profileVersion: "1",
     benchmarkVersion: BENCHMARK_VERSION,
     evaluatedAt: "2026-10-01T00:00:00Z",
-    tasks: ["docs", "local-code", "cross-component", "security"].map((kind) => ({
-      kind,
-      samples: 10,
-      passed,
-      medianDurationMs: ms,
-    })),
+    tasks: ["docs", "local-code", "cross-component", "security"].map(
+      (kind) => ({
+        kind,
+        samples: 10,
+        passed,
+        medianDurationMs: ms,
+      }),
+    ),
     ...extra,
   });
-  const rank = (evidence, kinds = ["security"]) => rankRouteEvidence(evidence, { routes, kinds, now: NOW });
-  assert.deepEqual(rank([record(routes[0], 9, 900), record(routes[1], 7, 100)]).choice, routes[0]);
-  assert.equal(rank([record(routes[0], 8, 900), record(routes[1], 8, 100)]).reason, "duration");
-  assert.equal(rank([record(routes[0], 8, 100), record(routes[1], 8, 100)]).choice, "abstain");
+  const rank = (evidence, kinds = ["security"]) =>
+    rankRouteEvidence(evidence, { routes, kinds, now: NOW });
+  assert.deepEqual(
+    rank([record(routes[0], 9, 900), record(routes[1], 7, 100)]).choice,
+    routes[0],
+  );
+  assert.equal(
+    rank([record(routes[0], 8, 900), record(routes[1], 8, 100)]).reason,
+    "duration",
+  );
+  assert.equal(
+    rank([record(routes[0], 8, 100), record(routes[1], 8, 100)]).choice,
+    "abstain",
+  );
   assert.equal(rank([record(routes[0], 9, 100)]).choice, "abstain");
   assert.equal(
-    rank([record(routes[0], 9, 100, { evaluatedAt: "2026-08-01T00:00:00Z" }), record(routes[1], 7, 100)])
-      .choice,
+    rank([
+      record(routes[0], 9, 100, { evaluatedAt: "2026-08-01T00:00:00Z" }),
+      record(routes[1], 7, 100),
+    ]).choice,
     "abstain",
   );
   assert.equal(
-    rank([record(routes[0], 9, 100, { benchmarkVersion: "route-bench-0.9.0" }), record(routes[1], 7, 100)])
-      .choice,
+    rank([
+      record(routes[0], 9, 100, { benchmarkVersion: "route-bench-0.9.0" }),
+      record(routes[1], 7, 100),
+    ]).choice,
     "abstain",
   );
   assert.equal(
-    rank([record({ agent: "Codex", model: "not-in-pool" }, 10, 100), record(routes[1], 7, 100)]).choice,
+    rank([
+      record({ agent: "Codex", model: "not-in-pool" }, 10, 100),
+      record(routes[1], 7, 100),
+    ]).choice,
     "abstain",
   );
-  assert.equal(rank([record(routes[0], 9, 100), record(routes[1], 7, 100)], ["unknown"]).choice, "abstain");
+  assert.equal(
+    rank([record(routes[0], 9, 100), record(routes[1], 7, 100)], ["unknown"])
+      .choice,
+    "abstain",
+  );
 });

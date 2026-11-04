@@ -1,5 +1,8 @@
 import { findRuntime } from "./ai-template/registry.mjs";
-import { isRetiredRuntimeRoute } from "./issue-runtime-adapters/shared.mjs";
+import {
+  isDisallowedModelRoute,
+  isRetiredRuntimeRoute,
+} from "./issue-runtime-adapters/shared.mjs";
 import { canonicalizeAgent, isCanonicalDate } from "./issue-assignment.mjs";
 import { roleProgramForMode, selectExecutionMode } from "./issue-roles.mjs";
 
@@ -40,18 +43,38 @@ export function normalizeIssues(rawItems, { completed = [] } = {}) {
   if (!Array.isArray(rawItems)) throw new Error("items-required");
   const items = rawItems.map((raw) => {
     const number = Number(raw?.number);
-    if (!Number.isSafeInteger(number) || number <= 0) throw new Error("invalid-issue-number");
-    if (!Array.isArray(raw.dependencies)) throw new Error(`missing-dependencies:${number}`);
-    const dependencies = raw.dependencies.map((dependency) => Number(dependency));
-    if (dependencies.some((dependency) => !Number.isSafeInteger(dependency) || dependency <= 0))
+    if (!Number.isSafeInteger(number) || number <= 0)
+      throw new Error("invalid-issue-number");
+    if (!Array.isArray(raw.dependencies))
+      throw new Error(`missing-dependencies:${number}`);
+    const dependencies = raw.dependencies.map((dependency) =>
+      Number(dependency),
+    );
+    if (
+      dependencies.some(
+        (dependency) => !Number.isSafeInteger(dependency) || dependency <= 0,
+      )
+    )
       throw new Error(`invalid-dependency:${number}`);
-    if (raw.riskCategory !== undefined && !["low", "medium", "high", "critical"].includes(raw.riskCategory))
+    if (
+      raw.riskCategory !== undefined &&
+      !["low", "medium", "high", "critical"].includes(raw.riskCategory)
+    )
       throw new Error(`invalid-risk-category:${number}`);
-    if (raw.changeScopeCount !== undefined && (!Number.isSafeInteger(raw.changeScopeCount) || raw.changeScopeCount < 1))
+    if (
+      raw.changeScopeCount !== undefined &&
+      (!Number.isSafeInteger(raw.changeScopeCount) || raw.changeScopeCount < 1)
+    )
       throw new Error(`invalid-change-scope:${number}`);
-    if (raw.modeOverride !== undefined && (!raw.modeOverride ||
-        !Array.isArray(raw.modeOverride.roleProgram) || typeof raw.modeOverride.executionMode !== "string" ||
-        Object.keys(raw.modeOverride).some((k) => !["executionMode", "roleProgram"].includes(k))))
+    if (
+      raw.modeOverride !== undefined &&
+      (!raw.modeOverride ||
+        !Array.isArray(raw.modeOverride.roleProgram) ||
+        typeof raw.modeOverride.executionMode !== "string" ||
+        Object.keys(raw.modeOverride).some(
+          (k) => !["executionMode", "roleProgram"].includes(k),
+        ))
+    )
       throw new Error(`invalid-mode-override:${number}`);
     const startDate = optionalString(raw.startDate);
     if (startDate !== undefined && !isCanonicalDate(startDate))
@@ -63,11 +86,20 @@ export function normalizeIssues(rawItems, { completed = [] } = {}) {
       status: requiredString(raw.status, `missing-status:${number}`),
       priority: optionalString(raw.priority),
       size: optionalString(raw.size),
-      ...(raw.riskCategory === undefined ? {} : { riskCategory: raw.riskCategory }),
-      ...(raw.changeScopeCount === undefined ? {} : { changeScopeCount: raw.changeScopeCount }),
-      ...(raw.modeOverride === undefined ? {} : { modeOverride: {
-        executionMode: raw.modeOverride.executionMode, roleProgram: [...raw.modeOverride.roleProgram],
-      } }),
+      ...(raw.riskCategory === undefined
+        ? {}
+        : { riskCategory: raw.riskCategory }),
+      ...(raw.changeScopeCount === undefined
+        ? {}
+        : { changeScopeCount: raw.changeScopeCount }),
+      ...(raw.modeOverride === undefined
+        ? {}
+        : {
+            modeOverride: {
+              executionMode: raw.modeOverride.executionMode,
+              roleProgram: [...raw.modeOverride.roleProgram],
+            },
+          }),
       iteration: optionalString(raw.iteration),
       ...(startDate === undefined ? {} : { startDate }),
       dependencies: Object.freeze([...new Set(dependencies)]),
@@ -78,7 +110,9 @@ export function normalizeIssues(rawItems, { completed = [] } = {}) {
 }
 
 function selectorValues(value) {
-  return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
+  return Array.isArray(value)
+    ? value.map((item) => String(item).trim()).filter(Boolean)
+    : [];
 }
 
 /**
@@ -91,7 +125,12 @@ export function selectIssues(rawItems, selectors = {}) {
   const priorities = selectorValues(selectors.priority);
   const iterations = selectorValues(selectors.iteration);
   const sizes = selectorValues(selectors.size);
-  if (!issues.length && !priorities.length && !iterations.length && !sizes.length)
+  if (
+    !issues.length &&
+    !priorities.length &&
+    !iterations.length &&
+    !sizes.length
+  )
     throw new Error("issue-filter-required");
   if (issues.some((issue) => !Number.isSafeInteger(issue) || issue <= 0))
     throw new Error("invalid-issue-filter");
@@ -102,7 +141,9 @@ export function selectIssues(rawItems, selectors = {}) {
     [iterations, (item) => iterations.includes(item.iteration)],
     [sizes, (item) => sizes.includes(item.size)],
   ]).filter(([values]) => values.length); // any: items are raw, unvalidated Issue rows
-  const matches = rawItems.filter((item) => dimensions.every(([, predicate]) => predicate(item)));
+  const matches = rawItems.filter((item) =>
+    dimensions.every(([, predicate]) => predicate(item)),
+  );
   if (!matches.length) throw new Error("no-issues-match-filter");
 
   const byNumber = new Map(rawItems.map((item) => [Number(item.number), item]));
@@ -111,27 +152,33 @@ export function selectIssues(rawItems, selectors = {}) {
   const visit = (item) => {
     const number = Number(item.number);
     if (selected.has(number)) return;
-    if (!Array.isArray(item.dependencies)) throw new Error(`missing-dependencies:${number}`);
+    if (!Array.isArray(item.dependencies))
+      throw new Error(`missing-dependencies:${number}`);
     selected.set(number, item);
     for (const dependency of item.dependencies) {
       const relation = (item.blockedBy ?? []).find(
-        ({ number: blockedNumber }) => Number(blockedNumber) === Number(dependency),
+        ({ number: blockedNumber }) =>
+          Number(blockedNumber) === Number(dependency),
       );
       if (relation?.state === "CLOSED") {
         completed.add(Number(dependency));
         continue;
       }
-      if (relation?.state === "OPEN") throw new Error(`dependency-open:${number}:${dependency}`);
+      if (relation?.state === "OPEN")
+        throw new Error(`dependency-open:${number}:${dependency}`);
       if (relation && relation.state !== "CLOSED" && relation.state !== "OPEN")
         throw new Error(`dependency-state-unavailable:${number}:${dependency}`);
       const dependencyItem = byNumber.get(Number(dependency));
-      if (!dependencyItem) throw new Error(`unknown-dependency:${number}:${dependency}`);
+      if (!dependencyItem)
+        throw new Error(`unknown-dependency:${number}:${dependency}`);
       visit(dependencyItem);
     }
   };
   for (const match of matches) visit(match);
   return {
-    items: [...selected.values()].sort((left, right) => Number(left.number) - Number(right.number)),
+    items: [...selected.values()].sort(
+      (left, right) => Number(left.number) - Number(right.number),
+    ),
     completed: [...completed].sort((left, right) => left - right),
   };
 }
@@ -140,7 +187,8 @@ export function validateIssues(items, { completed = [] } = {}) {
   const completedSet = new Set(completed.map(Number));
   const byNumber = new Map();
   for (const item of items) {
-    if (byNumber.has(item.number)) throw new Error(`duplicate-issue:${item.number}`);
+    if (byNumber.has(item.number))
+      throw new Error(`duplicate-issue:${item.number}`);
     byNumber.set(item.number, item);
   }
   for (const item of items)
@@ -170,7 +218,10 @@ function priorityRank(priority) {
 
 /** Deterministic execution order: Priority (P0 first), then Issue number. */
 function issueOrder(left, right) {
-  return priorityRank(left.priority) - priorityRank(right.priority) || left.number - right.number;
+  return (
+    priorityRank(left.priority) - priorityRank(right.priority) ||
+    left.number - right.number
+  );
 }
 
 /**
@@ -188,15 +239,18 @@ export function validateCapabilities(requiredRoutes, capabilities) {
         candidate.agent === requiredAgent &&
         // Accept either exact identifier from the same verified record;
         // never infer aliases or substitute a different model.
-        (candidate.model === route.model || candidate.requestedModel === route.model) &&
+        (candidate.model === route.model ||
+          candidate.requestedModel === route.model) &&
         candidate.role === route.role,
     );
     if (
       !match ||
       isRetiredRuntimeRoute(match) ||
+      isDisallowedModelRoute(match) ||
       !findRuntime(match.agent, process.cwd(), { enabledOnly: true }) ||
       (match.requestedModel !== undefined &&
-        (typeof match.requestedModel !== "string" || match.requestedModel.trim() === "")) ||
+        (typeof match.requestedModel !== "string" ||
+          match.requestedModel.trim() === "")) ||
       typeof match.model !== "string" ||
       match.model.trim() === "" ||
       !match.selectable ||
@@ -205,7 +259,9 @@ export function validateCapabilities(requiredRoutes, capabilities) {
       !Number.isSafeInteger(match.timeoutMs) ||
       match.timeoutMs <= 0
     )
-      throw new Error(`routing-unavailable:${route.role}:${route.agent}:${route.model}`);
+      throw new Error(
+        `routing-unavailable:${route.role}:${route.agent}:${route.model}`,
+      );
     validated.push(match);
   }
   return validated;
@@ -222,22 +278,34 @@ export function validateCapabilities(requiredRoutes, capabilities) {
  */
 export function selectWorkerRoutes(
   capabilities,
-  { parentAgent, parentAsWorker = false, unavailableAgents = [], unavailableModels = [], cwd = process.cwd() } = {},
+  {
+    parentAgent,
+    parentAsWorker = false,
+    unavailableAgents = [],
+    unavailableModels = [],
+    cwd = process.cwd(),
+  } = {},
 ) {
-  if (!Array.isArray(capabilities)) throw new Error("capability-records-required");
+  if (!Array.isArray(capabilities))
+    throw new Error("capability-records-required");
   const excludedAgents = new Set(
-    unavailableAgents.map((agent) => (canonicalizeAgent(agent, cwd) ?? "").toLowerCase()).filter(Boolean),
+    unavailableAgents
+      .map((agent) => (canonicalizeAgent(agent, cwd) ?? "").toLowerCase())
+      .filter(Boolean),
   );
   if (parentAgent !== undefined) {
-    if (isRetiredRuntimeRoute({ agent: parentAgent }, cwd)) throw new Error("runtime-retired");
+    if (isRetiredRuntimeRoute({ agent: parentAgent }, cwd))
+      throw new Error("runtime-retired");
     const canonicalParent = canonicalizeAgent(parentAgent, cwd);
     if (!canonicalParent) throw new Error("invalid-parent-agent");
-    if (parentAsWorker !== true) excludedAgents.add(canonicalParent.toLowerCase());
+    if (parentAsWorker !== true)
+      excludedAgents.add(canonicalParent.toLowerCase());
   }
   const excludedModels = new Set(unavailableModels);
   const routes = [];
   for (const record of capabilities) {
-    if (record?.role !== "worker" || isRetiredRuntimeRoute(record, cwd)) continue;
+    if (record?.role !== "worker" || isRetiredRuntimeRoute(record, cwd))
+      continue;
     if (
       typeof record.agent !== "string" ||
       record.agent.trim() === "" ||
@@ -256,18 +324,27 @@ export function selectWorkerRoutes(
       !Number.isSafeInteger(record.timeoutMs) ||
       record.timeoutMs <= 0
     )
-      throw new Error(`invalid-capability-record:${record?.agent ?? "unknown"}`);
+      throw new Error(
+        `invalid-capability-record:${record?.agent ?? "unknown"}`,
+      );
     if (record.selectable !== true || record.verifiable !== true) continue;
     if (!findRuntime(record.agent, cwd, { enabledOnly: true })) continue;
-    if (excludedAgents.has(canonicalizeAgent(record.agent, cwd).toLowerCase())) continue;
-    if (excludedModels.has(record.model) || excludedModels.has(record.requestedModel)) continue;
+    if (isDisallowedModelRoute(record, cwd)) continue;
+    if (excludedAgents.has(canonicalizeAgent(record.agent, cwd).toLowerCase()))
+      continue;
+    if (
+      excludedModels.has(record.model) ||
+      excludedModels.has(record.requestedModel)
+    )
+      continue;
     routes.push(record);
   }
   return routes;
 }
 
 function reasonFromReadiness(readiness) {
-  if (readiness.detail !== undefined) return `${readiness.kind}:${readiness.detail}`;
+  if (readiness.detail !== undefined)
+    return `${readiness.kind}:${readiness.detail}`;
   return readiness.kind;
 }
 
@@ -277,8 +354,10 @@ function reasonFromReadiness(readiness) {
  */
 export function buildRunPlan(items, run = {}) {
   validateIssues(items, { completed: run.completed ?? [] });
-  if (!Number.isSafeInteger(run.maxParallel) || run.maxParallel <= 0) throw new Error("invalid-max-parallel");
-  if (!RELEASE_POLICIES.has(run.releasePolicy)) throw new Error("invalid-release-policy");
+  if (!Number.isSafeInteger(run.maxParallel) || run.maxParallel <= 0)
+    throw new Error("invalid-max-parallel");
+  if (!RELEASE_POLICIES.has(run.releasePolicy))
+    throw new Error("invalid-release-policy");
   const completed = new Set((run.completed ?? []).map(Number));
   const existingWorktrees = new Set((run.existingWorktrees ?? []).map(Number));
   const byNumber = new Map(items.map((item) => [item.number, item]));
@@ -300,7 +379,9 @@ export function buildRunPlan(items, run = {}) {
 
     // Dependency readiness wins over local readiness so a tree reports
     // dependency-blocked when an ancestor is hard-blocked.
-    const incomplete = item.dependencies.filter((dependency) => !completed.has(dependency));
+    const incomplete = item.dependencies.filter(
+      (dependency) => !completed.has(dependency),
+    );
     const hardDeps = [];
     for (const dependency of incomplete) {
       const child = computeReadiness(dependency);
@@ -312,7 +393,10 @@ export function buildRunPlan(items, run = {}) {
       return ready;
     }
     if (incomplete.length) {
-      const ready = { kind: "dependencies-incomplete", detail: incomplete.join(",") };
+      const ready = {
+        kind: "dependencies-incomplete",
+        detail: incomplete.join(","),
+      };
       readinessByNumber.set(number, ready);
       return ready;
     }
@@ -332,7 +416,10 @@ export function buildRunPlan(items, run = {}) {
       continue;
     }
     if (readiness.kind === "status-not-runnable") {
-      skipped.push({ number: item.number, reason: reasonFromReadiness(readiness) });
+      skipped.push({
+        number: item.number,
+        reason: reasonFromReadiness(readiness),
+      });
       continue;
     }
     if (readiness.kind === "runnable") {
@@ -342,31 +429,44 @@ export function buildRunPlan(items, run = {}) {
         eligibleModes,
         executionMode: mode,
         roleProgram: roleProgramForMode(mode),
-        skill: existingWorktrees.has(item.number) ? "handoff-issue" : "issue-implementation",
+        skill: existingWorktrees.has(item.number)
+          ? "handoff-issue"
+          : "issue-implementation",
       });
       continue;
     }
-    blocked.push({ number: item.number, reason: reasonFromReadiness(readiness) });
+    blocked.push({
+      number: item.number,
+      reason: reasonFromReadiness(readiness),
+    });
   }
 
   for (const item of runnable.splice(run.maxParallel))
-    blocked.push({ number: item.number, reason: `parallel-limit:${run.maxParallel}` });
+    blocked.push({
+      number: item.number,
+      reason: `parallel-limit:${run.maxParallel}`,
+    });
 
   return { runnable, blocked, skipped };
 }
 
 export function applyMilestone(currentState = {}, event, context = {}) {
-  if (!RELEASE_POLICIES.has(context.releasePolicy)) throw new Error("invalid-release-policy");
+  if (!RELEASE_POLICIES.has(context.releasePolicy))
+    throw new Error("invalid-release-policy");
   const issue = Number(event?.issue);
-  if (!Number.isSafeInteger(issue) || issue <= 0) throw new Error("invalid-milestone-issue");
+  if (!Number.isSafeInteger(issue) || issue <= 0)
+    throw new Error("invalid-milestone-issue");
   const type = requiredString(event.type, "missing-milestone-type");
-  if (!new Set(context.issueNumbers ?? []).has(issue)) throw new Error(`unknown-milestone-issue:${issue}`);
-  if (!MILESTONE_TYPES.has(type)) throw new Error(`invalid-milestone-type:${type}`);
+  if (!new Set(context.issueNumbers ?? []).has(issue))
+    throw new Error(`unknown-milestone-issue:${issue}`);
+  if (!MILESTONE_TYPES.has(type))
+    throw new Error(`invalid-milestone-type:${type}`);
   const completed = new Set((currentState.completed ?? []).map(Number));
   if (type === context.releasePolicy) completed.add(issue);
   const milestones = [...(currentState.milestones ?? []), { issue, type }];
   const usage = { ...(currentState.usage ?? {}) };
-  if (event.usage !== undefined) usage[String(issue)] = normalizeUsage(event.usage);
+  if (event.usage !== undefined)
+    usage[String(issue)] = normalizeUsage(event.usage);
   return { completed: [...completed].sort((a, b) => a - b), milestones, usage };
 }
 
@@ -374,14 +474,17 @@ function normalizeUsage(value) {
   const normalized = {};
   for (const field of USAGE_FIELDS) {
     const number = Number(value?.[field]);
-    if (!Number.isSafeInteger(number) || number < 0) throw new Error(`invalid-usage:${field}`);
+    if (!Number.isSafeInteger(number) || number < 0)
+      throw new Error(`invalid-usage:${field}`);
     normalized[field] = number;
   }
   return normalized;
 }
 
 export function buildUsageReport(usage = {}, issueNumbers = []) {
-  const totalUsage = Object.fromEntries(USAGE_FIELDS.map((field) => [field, 0]));
+  const totalUsage = Object.fromEntries(
+    USAGE_FIELDS.map((field) => [field, 0]),
+  );
   const availableIssues = [];
   const unavailableIssues = [];
   const issues = issueNumbers.map((number) => {

@@ -20,7 +20,10 @@ test("determineEligibleModes returns direct-review for simple low-risk issues", 
   });
   assert.ok(modes.includes(EXECUTION_MODES.DIRECT_REVIEW));
   assert.ok(modes.includes(EXECUTION_MODES.PLAN_IMPLEMENT_REVIEW));
-  assert.equal(modes.includes(EXECUTION_MODES.PARALLEL_ANALYSIS_IMPLEMENT_REVIEW), false);
+  assert.equal(
+    modes.includes(EXECUTION_MODES.PARALLEL_ANALYSIS_IMPLEMENT_REVIEW),
+    false,
+  );
 });
 
 test("determineEligibleModes requires planning or parallel analysis for high risk", () => {
@@ -35,7 +38,10 @@ test("determineEligibleModes requires planning or parallel analysis for high ris
 });
 
 test("rankAndSelectMode enforces bounded selection within candidate set", () => {
-  const eligible = [EXECUTION_MODES.DIRECT_REVIEW, EXECUTION_MODES.PLAN_IMPLEMENT_REVIEW];
+  const eligible = [
+    EXECUTION_MODES.DIRECT_REVIEW,
+    EXECUTION_MODES.PLAN_IMPLEMENT_REVIEW,
+  ];
   const selected = rankAndSelectMode(eligible, [
     EXECUTION_MODES.PARALLEL_ANALYSIS_IMPLEMENT_REVIEW,
     EXECUTION_MODES.PLAN_IMPLEMENT_REVIEW,
@@ -44,7 +50,10 @@ test("rankAndSelectMode enforces bounded selection within candidate set", () => 
 });
 
 test("rankAndSelectMode throws error if no candidate matches preference or candidate set is invalid", () => {
-  assert.throws(() => rankAndSelectMode([], ["direct-review"]), /eligible-modes-empty/);
+  assert.throws(
+    () => rankAndSelectMode([], ["direct-review"]),
+    /eligible-modes-empty/,
+  );
   assert.throws(
     () => rankAndSelectMode(["invalid-mode"], ["direct-review"]),
     /invalid-candidate-mode/,
@@ -63,7 +72,10 @@ test("assignRoutesForMode selects distinct routes for implementer and reviewer",
 
 test("assignRoutesForMode throws error when distinct reviewer route is unavailable and not allowed", () => {
   const routes = [{ agent: "Codex", model: "gpt-5", role: "worker" }];
-  assert.throws(() => assignRoutesForMode(routes), /distinct-reviewer-route-unavailable/);
+  assert.throws(
+    () => assignRoutesForMode(routes),
+    /distinct-reviewer-route-unavailable/,
+  );
 
   const fallback = assignRoutesForMode(routes, { allowSameRoute: true });
   assert.equal(fallback.implementer, fallback.reviewer);

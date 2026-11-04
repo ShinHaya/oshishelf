@@ -5,28 +5,42 @@
   "probeArgs": [],
   "promptArgs": [],
   "skills": {
-    "discoveryDirs": [
-      ".opencode/skills"
-    ]
+    "discoveryDirs": [".opencode/skills"]
   },
   "id": "opencode",
   "name": "OpenCode",
   "evaluationOrder": 4,
-  "commands": [
-    "opencode"
-  ],
+  "commands": ["opencode"],
   "models": {
-    "args": [
-      "models"
-    ],
+    "args": ["models"],
     "parser": "provider-models"
   },
-  "selectorArgs": [
-    "run",
-    "--model",
-    "{model}",
-    "--auto"
-  ],
+  "selectorArgs": ["run", "--model", "{model}"],
+  "permissions": {
+    "flags": ["--auto", "--agent"],
+    "profiles": {
+      "workspace-write": {
+        "args": [],
+        "enforcement": "inherited",
+        "network": true
+      },
+      "worktree-setup": {
+        "args": ["--agent", "plan"],
+        "enforcement": "inherited",
+        "network": true
+      },
+      "read-only": {
+        "args": ["--agent", "plan"],
+        "enforcement": "inherited",
+        "network": true
+      },
+      "bypass": {
+        "args": ["--auto"],
+        "enforcement": "none",
+        "network": true
+      }
+    }
+  },
   "subagents": {
     "format": "opencode-markdown",
     "directory": ".opencode/agents",

@@ -1,43 +1,169 @@
 {
-  "aliases": [
-    "claude-code"
-  ],
+  "aliases": ["claude-code"],
   "enabledByDefault": true,
   "retired": false,
-  "probeArgs": [
-    "-p"
-  ],
-  "promptArgs": [
-    "-p"
-  ],
+  "probeArgs": ["-p", "--output-format", "stream-json", "--verbose"],
+  "promptArgs": ["-p"],
   "skills": {
-    "discoveryDirs": [
-      ".claude/skills"
-    ]
+    "discoveryDirs": [".claude/skills"]
   },
   "id": "claude",
   "name": "Claude",
   "evaluationOrder": 1,
-  "commands": [
-    "claude"
-  ],
+  "commands": ["claude"],
   "auth": {
-    "args": [
-      "auth",
-      "status"
-    ],
+    "args": ["auth", "status"],
     "parser": "logged-in-json"
   },
   "models": {
     "args": [],
-    "parser": "claude-local"
+    "parser": "claude-initialize",
+    "control": {
+      "args": [
+        "--safe-mode",
+        "--tools=",
+        "--no-session-persistence",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "-p"
+      ],
+      "request": {
+        "method": "initialize"
+      }
+    },
+    "resolveReportedModel": true
   },
-  "selectorArgs": [
-    "--model",
-    "{model}",
-    "--permission-mode",
-    "bypassPermissions"
-  ],
+  "selectorArgs": ["--model", "{model}"],
+  "permissions": {
+    "flags": [
+      "--permission-mode",
+      "--permission-prompts",
+      "--permission-prompt-tool",
+      "--dangerously-skip-permissions",
+      "--allow-dangerously-skip-permissions",
+      "--allowedTools",
+      "--allowed-tools",
+      "--disallowedTools",
+      "--disallowed-tools",
+      "--tools",
+      "--settings",
+      "--setting-sources",
+      "--add-dir",
+      "--safe-mode"
+    ],
+    "allowArgs": ["--allowedTools={rules}"],
+    "profiles": {
+      "workspace-write": {
+        "args": [
+          "--permission-mode",
+          "acceptEdits",
+          "--permission-prompts",
+          "none"
+        ],
+        "allow": [
+          "Bash(git status:*)",
+          "Bash(git diff:*)",
+          "Bash(git log:*)",
+          "Bash(git show:*)",
+          "Bash(git rev-parse:*)",
+          "Bash(gh issue view:*)",
+          "Bash(gh pr view:*)",
+          "Bash(gh pr diff:*)",
+          "Bash(gh pr checks:*)",
+          "Bash(gh pr list:*)",
+          "Bash(node scripts/repository-config.mjs:*)",
+          "Bash(git add:*)",
+          "Bash(git commit:*)",
+          "Bash(git push:*)",
+          "Bash(git fetch:*)",
+          "Bash(git merge:*)",
+          "Bash(git rebase:*)",
+          "Bash(git restore:*)",
+          "Bash(git rm:*)",
+          "Bash(git mv:*)",
+          "Bash(gh issue list:*)",
+          "Bash(gh issue comment:*)",
+          "Bash(gh pr create:*)",
+          "Bash(gh pr comment:*)",
+          "Bash(gh pr edit:*)",
+          "Bash(gh run list:*)",
+          "Bash(gh run view:*)",
+          "Bash(bash scripts/issue-worktree.sh:*)",
+          "Bash(bash scripts/setup-hooks.sh:*)",
+          "Bash(node scripts/:*)",
+          "Bash(node --test:*)",
+          "Bash(npm ci:*)",
+          "Bash(npm run:*)",
+          "Bash(npm test:*)"
+        ],
+        "enforcement": "cli",
+        "network": true
+      },
+      "worktree-setup": {
+        "args": [
+          "--permission-mode",
+          "dontAsk",
+          "--permission-prompts",
+          "none",
+          "--disallowedTools=Edit,Write,NotebookEdit"
+        ],
+        "allow": [
+          "Bash(git status:*)",
+          "Bash(git diff:*)",
+          "Bash(git log:*)",
+          "Bash(git show:*)",
+          "Bash(git rev-parse:*)",
+          "Bash(gh issue view:*)",
+          "Bash(gh pr view:*)",
+          "Bash(gh pr diff:*)",
+          "Bash(gh pr checks:*)",
+          "Bash(gh pr list:*)",
+          "Bash(node scripts/repository-config.mjs:*)",
+          "Bash(gh issue list:*)",
+          "Bash(gh issue comment:*)",
+          "Bash(bash scripts/issue-worktree.sh create:*)",
+          "Bash(bash scripts/issue-worktree.sh handoff:*)",
+          "Bash(bash scripts/issue-worktree.sh status:*)"
+        ],
+        "enforcement": "cli",
+        "network": true
+      },
+      "read-only": {
+        "args": [
+          "--permission-mode",
+          "dontAsk",
+          "--permission-prompts",
+          "none",
+          "--disallowedTools=Edit,Write,NotebookEdit"
+        ],
+        "allow": [
+          "Bash(git status:*)",
+          "Bash(git diff:*)",
+          "Bash(git log:*)",
+          "Bash(git show:*)",
+          "Bash(git rev-parse:*)",
+          "Bash(gh issue view:*)",
+          "Bash(gh pr view:*)",
+          "Bash(gh pr diff:*)",
+          "Bash(gh pr checks:*)",
+          "Bash(gh pr list:*)",
+          "Bash(node scripts/repository-config.mjs:*)",
+          "Bash(gh issue comment:*)",
+          "Bash(gh pr comment:*)"
+        ],
+        "enforcement": "cli",
+        "network": true
+      },
+      "bypass": {
+        "args": ["--permission-mode", "bypassPermissions"],
+        "enforcement": "none",
+        "network": true
+      }
+    }
+  },
   "subagents": {
     "format": "claude-markdown",
     "directory": ".claude/agents",
@@ -91,9 +217,6 @@
     "percentFormat": "number",
     "resetsAt": "resets_at",
     "resetFormat": "iso",
-    "blocked": [
-      "$.rate_limits_available == false",
-      "locked_reason != null"
-    ]
+    "blocked": ["$.rate_limits_available == false", "locked_reason != null"]
   }
 }

@@ -29,26 +29,28 @@ Issues are completed. Size is not fetched or written; triage may recommend it.
    Include the parent runtime's worker records only per its worker mode (below) and apply
    unavailable route labels.
 2. Use `node scripts/issue-orchestrator.mjs --issues <numbers> --dry-run
-   --max-parallel <count> --release-policy merged --parent-agent <agent>
-   --parent-model <model>`. It fetches only Issue metadata, labels and native
+--max-parallel <count> --release-policy merged --parent-agent <agent>
+--parent-model <model>`. It fetches only Issue metadata, labels and native
    `Blocked by` relations, never bodies or Project fields. Only the isolated
    opt-in triage child may fetch its current Issue body. Each worker reads its
    own Issue body and comments immediately before its work.
-3. Stop before worktree writes on missing/truncated metadata, cross-repository
-   dependencies, cycles, an open blocker, ambiguous priority or unavailable routes.
-   A closed blocker is completed. No Project status transition is performed.
+3. Stop before worktree writes on missing/truncated metadata, cycles, an open
+   blocker, ambiguous priority or unavailable routes. A closed same-repository
+   blocker is completed. A cross-repository blocker is completed only when it is
+   closed and a linked closing PR is confirmed merged with complete metadata;
+   otherwise stop. No Project status transition is performed.
 4. Assign from `workerRoutes` in the resulting runnable plan; routing remains a
    run-time decision. An empty verified pool stops with `no-worker-route-available`.
 
 ## Role programs
 
-One Issue is implemented by a *sequence* of workers, not one. The plan gives every runnable
+One Issue is implemented by a _sequence_ of workers, not one. The plan gives every runnable
 Issue a deterministic execution mode (`scripts/issue-modes.mjs`) and the role program
 that follows from it:
 
-| Execution mode | Selected when | Role program |
-| --- | --- | --- |
-| `direct-review` | **low** risk, size XS–M, shallow dependencies | implementer → reviewer |
+| Execution mode          | Selected when                                                  | Role program                     |
+| ----------------------- | -------------------------------------------------------------- | -------------------------------- |
+| `direct-review`         | **low** risk, size XS–M, shallow dependencies                  | implementer → reviewer           |
 | `plan-implement-review` | any risk above low, size L–XL, depth ≥ 2, or wide change scope | planner → implementer → reviewer |
 
 Risk above `low` always buys a planner: `direct-review` stays eligible for medium-risk Issues,
@@ -62,6 +64,8 @@ continues on a shared route and records `same-route-reviewer:*`. The first imple
 to enter an Issue creates the worktree via `issue-implementation`; later implementation roles
 resume it via `handoff-issue`. **A reviewer runs no skill at all** — both implementation skills
 commit, so it enters the existing worktree read-only.
+An implementer role skips the skills' own reviewer step — its prompt says so explicitly — so
+the reviewer role is the Issue's only review; `--single-worker` keeps the in-skill review.
 
 Review is bounded to one pass per Issue: a
 `NEEDS_REVISION` verdict buys one implementer fix pass that is **not** re-reviewed — the Issue
@@ -105,6 +109,7 @@ strengths and the user's run-scoped hints. Rules:
   in classic output, `summary.routing.parentWorker` in the graph); the raw response, account,
   plan, and credentials are never stored. Parent and worker share the same account quota, so
   the check is a point-in-time admission, not a guarantee that 50% stays available.
+
 - Record the chosen route (agent + model labels only) in run state and in the dispatch message.
 - Exclusions are run-scoped: YAML `run.unavailableAgents` / `run.unavailableModels` and their
   `--unavailable-agent` / `--unavailable-model` CLI overrides affect only the current run, and
@@ -151,7 +156,7 @@ Do not embed hidden rationale or repeat repository-wide instructions that the wo
   `gh pr view --comments`, pushes to the same branch, and posts its own PR comment headed
   `role=implementer fix-cycle=<N>` stating what it changed per finding.
 - Session limit, CLI interruption, rate limit, or agent change: stop dispatching new work for that Issue, terminate only that worker process tree, add the interrupted agent to the run's `--unavailable-agent` list, and choose the handoff recipient **at that moment** from the remaining `workerRoutes` (which excludes the Parent agent unless the run opted it in; there is no preassigned sub assignee). Route the recipient through `handoff-issue` in the same worktree. Preserve inherited WIP; never stash, reset, clean, copy, or create a duplicate worktree.
-- A route that fails at actual dispatch (not just at discovery) is a signal the cached capability record no longer reflects reality. Pass `--invalidate-agent <name>` on the *next* orchestrator invocation (in addition to this run's `--unavailable-agent`) so that agent is dropped from the capability cache and re-probed instead of being trusted as "ok" indefinitely.
+- A route that fails at actual dispatch (not just at discovery) is a signal the cached capability record no longer reflects reality. Pass `--invalidate-agent <name>` on the _next_ orchestrator invocation (in addition to this run's `--unavailable-agent`) so that agent is dropped from the capability cache and re-probed instead of being trusted as "ok" indefinitely.
 
 Workers return only `started`, `blocked`, `role-complete`, `pr-created`, `merged`, or `failed`,
 plus a concise reason and exact usage telemetry when exposed. `role-complete` carries the role
@@ -223,11 +228,22 @@ Use this concise summary shape:
   "routing": { "parent": "verified|unavailable" },
   "runnable": [101],
   "assignments": [{ "number": 101, "agent": "Codex", "model": "gpt-5" }],
-  "roles": [{ "issue": 101, "executionMode": "direct-review", "role": "reviewer", "status": "active", "reviewPasses": 0 }],
+  "roles": [
+    {
+      "issue": 101,
+      "executionMode": "direct-review",
+      "role": "reviewer",
+      "status": "active",
+      "reviewPasses": 0
+    }
+  ],
   "blocked": [{ "number": 102, "reason": "dependencies-incomplete:101" }],
   "skipped": [],
   "milestones": [{ "issue": 101, "type": "pr-created" }],
-  "usage": { "issues": [{ "number": 101, "usage": "unavailable" }], "total": "unavailable" }
+  "usage": {
+    "issues": [{ "number": 101, "usage": "unavailable" }],
+    "total": "unavailable"
+  }
 }
 ```
 

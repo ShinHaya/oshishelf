@@ -1,12 +1,13 @@
 {
   "$schema": "../agents/config.schema.json",
   "agents": {
-    "enabled": [
-      "claude",
-      "codex",
-      "opencode",
-      "grok"
-    ]
+    "enabled": ["claude", "codex", "opencode", "grok"],
+    "environment": {
+      "codex": {
+        "inherit": [],
+        "required": []
+      }
+    }
   },
   "repository": {
     "baseBranch": "main",

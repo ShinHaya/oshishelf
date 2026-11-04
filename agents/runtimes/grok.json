@@ -2,34 +2,125 @@
   "aliases": [],
   "enabledByDefault": true,
   "retired": false,
-  "probeArgs": [
-    "-p"
-  ],
-  "promptArgs": [
-    "-p"
-  ],
+  "probeArgs": ["-p"],
+  "promptArgs": ["-p"],
   "skills": {
-    "discoveryDirs": [
-      ".agents/skills"
-    ]
+    "discoveryDirs": [".agents/skills"]
   },
   "id": "grok",
   "name": "Grok",
   "evaluationOrder": 2,
-  "commands": [
-    "grok"
-  ],
+  "commands": ["grok"],
   "models": {
-    "args": [
-      "models"
-    ],
+    "args": ["models"],
     "parser": "bullet-models"
   },
-  "selectorArgs": [
-    "--model",
-    "{model}",
-    "--permission-mode",
-    "bypassPermissions"
-  ],
+  "selectorArgs": ["--model", "{model}"],
+  "permissions": {
+    "flags": [
+      "--permission-mode",
+      "--allow",
+      "--allowedTools",
+      "--allowed-tools",
+      "--deny",
+      "--disallowedTools",
+      "--disallowed-tools",
+      "--always-approve",
+      "--sandbox",
+      "--tools"
+    ],
+    "allowArgs": ["--allow", "{rule}"],
+    "profiles": {
+      "workspace-write": {
+        "args": ["--permission-mode", "acceptEdits"],
+        "allow": [
+          "Bash(git status:*)",
+          "Bash(git diff:*)",
+          "Bash(git log:*)",
+          "Bash(git show:*)",
+          "Bash(git rev-parse:*)",
+          "Bash(gh issue view:*)",
+          "Bash(gh pr view:*)",
+          "Bash(gh pr diff:*)",
+          "Bash(gh pr checks:*)",
+          "Bash(gh pr list:*)",
+          "Bash(node scripts/repository-config.mjs:*)",
+          "Bash(git add:*)",
+          "Bash(git commit:*)",
+          "Bash(git push:*)",
+          "Bash(git fetch:*)",
+          "Bash(git merge:*)",
+          "Bash(git rebase:*)",
+          "Bash(git restore:*)",
+          "Bash(git rm:*)",
+          "Bash(git mv:*)",
+          "Bash(gh issue list:*)",
+          "Bash(gh issue comment:*)",
+          "Bash(gh pr create:*)",
+          "Bash(gh pr comment:*)",
+          "Bash(gh pr edit:*)",
+          "Bash(gh run list:*)",
+          "Bash(gh run view:*)",
+          "Bash(bash scripts/issue-worktree.sh:*)",
+          "Bash(bash scripts/setup-hooks.sh:*)",
+          "Bash(node scripts/:*)",
+          "Bash(node --test:*)",
+          "Bash(npm ci:*)",
+          "Bash(npm run:*)",
+          "Bash(npm test:*)"
+        ],
+        "enforcement": "cli",
+        "network": true
+      },
+      "worktree-setup": {
+        "args": ["--permission-mode", "dontAsk"],
+        "allow": [
+          "Bash(git status:*)",
+          "Bash(git diff:*)",
+          "Bash(git log:*)",
+          "Bash(git show:*)",
+          "Bash(git rev-parse:*)",
+          "Bash(gh issue view:*)",
+          "Bash(gh pr view:*)",
+          "Bash(gh pr diff:*)",
+          "Bash(gh pr checks:*)",
+          "Bash(gh pr list:*)",
+          "Bash(node scripts/repository-config.mjs:*)",
+          "Bash(gh issue list:*)",
+          "Bash(gh issue comment:*)",
+          "Bash(bash scripts/issue-worktree.sh create:*)",
+          "Bash(bash scripts/issue-worktree.sh handoff:*)",
+          "Bash(bash scripts/issue-worktree.sh status:*)"
+        ],
+        "enforcement": "cli",
+        "network": true
+      },
+      "read-only": {
+        "args": ["--permission-mode", "dontAsk"],
+        "allow": [
+          "Bash(git status:*)",
+          "Bash(git diff:*)",
+          "Bash(git log:*)",
+          "Bash(git show:*)",
+          "Bash(git rev-parse:*)",
+          "Bash(gh issue view:*)",
+          "Bash(gh pr view:*)",
+          "Bash(gh pr diff:*)",
+          "Bash(gh pr checks:*)",
+          "Bash(gh pr list:*)",
+          "Bash(node scripts/repository-config.mjs:*)",
+          "Bash(gh issue comment:*)",
+          "Bash(gh pr comment:*)"
+        ],
+        "enforcement": "cli",
+        "network": true
+      },
+      "bypass": {
+        "args": ["--permission-mode", "bypassPermissions"],
+        "enforcement": "none",
+        "network": true
+      }
+    }
+  },
   "usageUnavailable": "five-hour-query-unavailable"
 }

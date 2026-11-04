@@ -1,0 +1,4 @@
+interface:
+  display_name: "Refresh Model Catalog"
+  short_description: "Refresh the local model catalog and report changes"
+  default_prompt: "Use $refresh-model-catalog to refresh the model catalog and report what changed."

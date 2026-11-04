@@ -60,12 +60,21 @@ export class FileCheckpointSaver extends MemorySaver {
     } catch {
       throw new Error("checkpoint-file-corrupt");
     }
-    if (parsed?.format !== FILE_FORMAT) throw new Error("checkpoint-format-unsupported");
-    const plain = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+    if (parsed?.format !== FILE_FORMAT)
+      throw new Error("checkpoint-format-unsupported");
+    const plain = (value) =>
+      value !== null && typeof value === "object" && !Array.isArray(value);
     const budgets = parsed.triageBudgets ?? {};
     const attempts = parsed.triageAttempts ?? {};
-    if (!plain(budgets) || !Object.values(budgets).every(plain) || !plain(attempts) ||
-        !Object.values(attempts).every((list) => Array.isArray(list) && list.every((f) => typeof f === "string")))
+    if (
+      !plain(budgets) ||
+      !Object.values(budgets).every(plain) ||
+      !plain(attempts) ||
+      !Object.values(attempts).every(
+        (list) =>
+          Array.isArray(list) && list.every((f) => typeof f === "string"),
+      )
+    )
       throw new Error("checkpoint-file-corrupt");
     saver.#triageBudgets = budgets;
     saver.#triageAttempts = attempts;
@@ -84,13 +93,19 @@ export class FileCheckpointSaver extends MemorySaver {
     for (const [outerKey, writes] of Object.entries(parsed.writes ?? {})) {
       saver.writes[outerKey] = Object.create(null);
       for (const [innerKey, write] of Object.entries(writes))
-        saver.writes[outerKey][innerKey] = [write.taskId, write.channel, write.value];
+        saver.writes[outerKey][innerKey] = [
+          write.taskId,
+          write.channel,
+          write.value,
+        ];
     }
     return saver;
   }
 
   #persist() {
-    const next = this.#persistQueue.catch(() => {}).then(() => this.#persistNow());
+    const next = this.#persistQueue
+      .catch(() => {})
+      .then(() => this.#persistNow());
     this.#persistQueue = next;
     return next;
   }
@@ -101,7 +116,10 @@ export class FileCheckpointSaver extends MemorySaver {
       storage[threadId] = {};
       for (const [namespace, checkpoints] of Object.entries(namespaces)) {
         storage[threadId][namespace] = {};
-        for (const [checkpointId, [checkpoint, metadata, parentId]] of Object.entries(checkpoints))
+        for (const [
+          checkpointId,
+          [checkpoint, metadata, parentId],
+        ] of Object.entries(checkpoints))
           storage[threadId][namespace][checkpointId] = {
             checkpoint: asString(checkpoint),
             metadata: asString(metadata),
@@ -112,11 +130,22 @@ export class FileCheckpointSaver extends MemorySaver {
     const writes = {};
     for (const [outerKey, innerWrites] of Object.entries(this.writes)) {
       writes[outerKey] = {};
-      for (const [innerKey, [taskId, channel, value]] of Object.entries(innerWrites))
-        writes[outerKey][innerKey] = { taskId, channel, value: asString(value) };
+      for (const [innerKey, [taskId, channel, value]] of Object.entries(
+        innerWrites,
+      ))
+        writes[outerKey][innerKey] = {
+          taskId,
+          channel,
+          value: asString(value),
+        };
     }
-    await writeJsonAtomic(this.#filePath, { format: FILE_FORMAT, storage, writes,
-      triageBudgets: this.#triageBudgets, triageAttempts: this.#triageAttempts });
+    await writeJsonAtomic(this.#filePath, {
+      format: FILE_FORMAT,
+      storage,
+      writes,
+      triageBudgets: this.#triageBudgets,
+      triageAttempts: this.#triageAttempts,
+    });
   }
 
   /** A reservation is durable before the triage child can make a paid request. */
@@ -126,7 +155,8 @@ export class FileCheckpointSaver extends MemorySaver {
 
   async reserveTriageBudget(snapshot) {
     const previous = this.#triageBudgets[snapshot.runId];
-    if (previous && snapshot.reserved < previous.reserved) throw new Error("triage-budget-regression");
+    if (previous && snapshot.reserved < previous.reserved)
+      throw new Error("triage-budget-regression");
     this.#triageBudgets[snapshot.runId] = { ...snapshot };
     await this.#persist();
   }

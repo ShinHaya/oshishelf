@@ -66,7 +66,9 @@ test("buildDatasetFromTelemetryEvents constructs versioned episodes", () => {
     },
   ];
 
-  const dataset = buildDatasetFromTelemetryEvents(events, { datasetVersion: "1.2.0" });
+  const dataset = buildDatasetFromTelemetryEvents(events, {
+    datasetVersion: "1.2.0",
+  });
   assert.equal(dataset.dataset_version, "1.2.0");
   assert.equal(dataset.total_episodes, 1);
   const ep = dataset.episodes[0];
@@ -113,14 +115,18 @@ test("OfflineReplayEngine evaluates policies and computes quality & efficiency m
   const evalSummary = engine.evaluateDataset(dataset, [rulePolicy, llmPolicy]);
   assert.equal(evalSummary.policies.length, 2);
 
-  const baselineRes = evalSummary.policies.find((p) => p.policy_name === "baseline-rule-based");
+  const baselineRes = evalSummary.policies.find(
+    (p) => p.policy_name === "baseline-rule-based",
+  );
   assert.equal(baselineRes.quality_metrics.terminal_success_rate, 1.0);
   assert.equal(baselineRes.quality_metrics.pr_merge_rate, 1.0);
   assert.equal(baselineRes.efficiency_metrics.total_tokens, 2000);
   assert.ok(baselineRes.sample_size_warning.includes("Sample size N < 10"));
 
   const reportText = engine.formatReport(evalSummary);
-  assert.ok(reportText.includes("# Offline Evaluation & Quality-Token Frontier Report"));
+  assert.ok(
+    reportText.includes("# Offline Evaluation & Quality-Token Frontier Report"),
+  );
   assert.ok(reportText.includes("baseline-rule-based"));
 });
 
@@ -130,7 +136,10 @@ test("OfflineReplayEngine disqualifies out-of-bounds candidates", () => {
     issue_id: "999",
     eligible_modes: ["single-agent"],
     eligible_routes: ["Codex"],
-    selected_configuration: { execution_mode: "single-agent", assigned_agent: "Codex" },
+    selected_configuration: {
+      execution_mode: "single-agent",
+      assigned_agent: "Codex",
+    },
   };
 
   class BadPolicy extends EvaluationPolicy {

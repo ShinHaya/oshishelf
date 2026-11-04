@@ -5,26 +5,44 @@
   "probeArgs": [],
   "promptArgs": [],
   "skills": {
-    "discoveryDirs": [
-      ".agents/skills"
-    ]
+    "discoveryDirs": [".agents/skills"]
   },
   "id": "gemini",
   "name": "Gemini",
   "evaluationOrder": 3,
-  "commands": [
-    "gemini"
-  ],
+  "commands": ["gemini"],
   "models": {
-    "args": [
-      "models"
-    ],
+    "args": ["models"],
     "parser": "model-lines"
   },
-  "selectorArgs": [
-    "--model",
-    "{model}"
-  ],
+  "selectorArgs": ["--model", "{model}"],
+  "permissions": {
+    "flags": [
+      "--approval-mode",
+      "--yolo",
+      "-y",
+      "--sandbox",
+      "-s",
+      "--allowed-tools"
+    ],
+    "profiles": {
+      "workspace-write": {
+        "args": [],
+        "enforcement": "inherited",
+        "network": true
+      },
+      "worktree-setup": {
+        "args": [],
+        "enforcement": "inherited",
+        "network": true
+      },
+      "read-only": {
+        "args": [],
+        "enforcement": "inherited",
+        "network": true
+      }
+    }
+  },
   "subagents": {
     "format": "agent-json",
     "directory": ".agents/agents",
