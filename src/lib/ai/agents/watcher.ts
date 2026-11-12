@@ -3,6 +3,7 @@ import { FunctionTool, LlmAgent } from "@google/adk";
 import { z } from "zod";
 import { adkModel, runAgent } from "../adk";
 import { genai, MODEL } from "../gemini";
+import { startTelemetryTrace, recordTrace } from "../telemetry-context";
 import { db } from "../../firebase-admin";
 import { fetchProductMeta } from "../../product-meta";
 import { listNotifications, listVisibleWishes, notify, updateWish } from "../../data/social";
@@ -162,10 +163,14 @@ notify_user がエラーを返した通知は送られていない。
   });
 }
 
-/** One autonomous patrol for a user; every run is recorded in `agentRuns` for auditability. */
+/** One autonomous patrol for a user; every run is recorded in `agentRuns` for auditability and in `aiTelemetry` for observability. */
 export async function runWatcherFor(uid: string) {
   const user = await getUser(uid);
   if (!user) return null;
+
+  const version = process.env.GIT_SHA || "unknown";
+  const cleanup = startTelemetryTrace("watcher", uid, version);
+
   const started = Date.now();
   try {
     const stats: PatrolStats = { checked: 0, priceSent: 0, releaseSent: 0 };
@@ -174,9 +179,20 @@ export async function runWatcherFor(uid: string) {
     // The summary shown to users comes from what the tools actually did, not from the model's claims.
     const summary = `ほしい物 ${stats.checked} 件の価格を確認し、値下がり ${stats.priceSent} 件・新作 ${stats.releaseSent} 件を通知しました。`;
     await db.collection("agentRuns").add({ agent: "watcher", uid, ok: true, summary, agentReply: text.slice(0, 500), stats, steps, startedAt: started, finishedAt: Date.now() });
+
+    // Record telemetry without sensitive information
+    await recordTrace(true);
+
     return { summary, steps };
   } catch (e) {
+    const errorType = e instanceof Error ? e.constructor.name : "Unknown";
     await db.collection("agentRuns").add({ agent: "watcher", uid, ok: false, error: String(e).slice(0, 500), startedAt: started, finishedAt: Date.now() });
+
+    // Record telemetry failure without error message content
+    await recordTrace(false, errorType);
+
     throw e;
+  } finally {
+    cleanup();
   }
 }

@@ -3,6 +3,7 @@ import { FieldValue, type DocumentReference } from "firebase-admin/firestore";
 import { adminAuth, db } from "../firebase-admin";
 import { deleteReactionsOfUser } from "./reviews";
 import { deleteWishesForOwner } from "./social";
+import { deleteTelemetryForUser } from "../ai/telemetry";
 
 async function deleteRefs(refs: DocumentReference[]) {
   for (let i = 0; i < refs.length; i += 400) {
@@ -48,6 +49,9 @@ export async function deleteAccount(uid: string) {
     db.collection("usage").where("uid", "==", uid).select().get(),
   ]);
   await deleteRefs([...runs.docs, ...usage.docs].map((d) => d.ref));
+
+  // Delete telemetry records (fire-and-forget to avoid blocking deletion)
+  deleteTelemetryForUser(uid);
 
   if (handle) await db.collection("handles").doc(handle).delete();
   // Removes the profile together with its wishes / notifications subcollections.
