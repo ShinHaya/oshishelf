@@ -61,10 +61,15 @@ resource "google_service_account_iam_member" "act_as" {
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:staging-terraform@${var.project_id}.iam.gserviceaccount.com"
 }
-resource "google_service_account_iam_member" "test_token" {
+resource "google_service_account_iam_member" "test_token_user" {
   service_account_id = google_service_account.ai_test.name
   role               = "projects/${var.project_id}/roles/stagingDiagnosticTokenMinter"
   member             = "user:${var.operator_email}"
+}
+resource "google_service_account_iam_member" "test_token_terraform" {
+  service_account_id = google_service_account.ai_test.name
+  role               = "projects/${var.project_id}/roles/stagingDiagnosticTokenMinter"
+  member             = "serviceAccount:staging-terraform@${var.project_id}.iam.gserviceaccount.com"
 }
 resource "google_artifact_registry_repository" "app" {
   location      = var.region
